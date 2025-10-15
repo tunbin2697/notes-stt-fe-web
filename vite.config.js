@@ -16,6 +16,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
+    include: ["@apollo/client", "graphql", "date-fns"],
     esbuildOptions: {
       define: {
         global: "globalThis",
