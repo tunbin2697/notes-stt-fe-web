@@ -105,7 +105,8 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       return {
         success: false,
-        error: error.graphQLErrors?.[0]?.message || "Login failed",
+        error:
+          error.graphQLErrors?.[0]?.message || error.message || "Login failed",
       };
     }
   };
@@ -119,7 +120,10 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       return {
         success: false,
-        error: error.graphQLErrors?.[0]?.message || "Registration failed",
+        error:
+          error.graphQLErrors?.[0]?.message ||
+          error.message ||
+          "Registration failed",
       };
     }
   };
@@ -128,7 +132,6 @@ export const AuthProvider = ({ children }) => {
     try {
       await logoutMutation();
     } catch (error) {
-      console.error("Logout error:", error);
     } finally {
       localStorage.removeItem("accessToken");
       setAccessToken(null);
