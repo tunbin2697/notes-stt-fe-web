@@ -4,6 +4,11 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import apolloClient from "@/lib/apolloClient";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
+import ChangePassword from "@/pages/ChangePassword";
+import LogoutAll from "@/pages/LogoutAll";
+import Profile from "@/pages/Profile";
 import Notes from "@/pages/Notes";
 import Test from "@/pages/Test";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -34,6 +39,46 @@ function App() {
               <RedirectIfAuthenticated>
                 <Register />
               </RedirectIfAuthenticated>
+            }
+          />
+          <Route
+            path="/forgot-password"
+            element={
+              <RedirectIfAuthenticated>
+                <ForgotPassword />
+              </RedirectIfAuthenticated>
+            }
+          />
+          <Route
+            path="/reset-password"
+            element={
+              <RedirectIfAuthenticated>
+                <ResetPassword />
+              </RedirectIfAuthenticated>
+            }
+          />
+          <Route
+            path="/change-password"
+            element={
+              <ProtectedRoute>
+                <ChangePassword />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/logout-all"
+            element={
+              <ProtectedRoute>
+                <LogoutAll />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
             }
           />
           <Route

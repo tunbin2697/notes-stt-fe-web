@@ -27,9 +27,13 @@ export const GET_ME = gql`
       id
       email
       fullName
+      phone
+      location
       bio
       avatar
+      role
       createdAt
+      updatedAt
     }
   }
 `;

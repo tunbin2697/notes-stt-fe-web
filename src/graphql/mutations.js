@@ -39,8 +39,8 @@ export const CHANGE_PASSWORD = gql`
 `;
 
 export const REQUEST_PASSWORD_RESET = gql`
-  mutation RequestPasswordReset($email: String!) {
-    requestPasswordReset(email: $email)
+  mutation ForgotPassword($email: String!) {
+    forgotPassword(email: $email)
   }
 `;
 
@@ -57,14 +57,35 @@ export const RESET_PASSWORD = gql`
 `;
 
 export const UPDATE_PROFILE = gql`
-  mutation UpdateProfile($fullName: String, $bio: String, $avatar: String) {
-    updateProfile(input: { fullName: $fullName, bio: $bio, avatar: $avatar }) {
-      id
-      email
-      fullName
-      bio
-      avatar
-    }
+  mutation UpdateMyProfile(
+    $fullName: String
+    $phone: String
+    $location: String
+    $avatar: String
+    $bio: String
+  ) {
+    updateMyProfile(
+      input: {
+        fullName: $fullName
+        phone: $phone
+        location: $location
+        avatar: $avatar
+        bio: $bio
+      }
+    )
+  }
+`;
+
+// Logout from all devices
+export const REQUEST_LOGOUT_ALL_OTP = gql`
+  mutation RequestLogoutAllOTP($email: String!) {
+    requestLogoutAllOTP(email: $email)
+  }
+`;
+
+export const LOGOUT_ALL = gql`
+  mutation LogoutAll($email: String!, $otp: String!) {
+    logoutAll(input: { email: $email, otp: $otp })
   }
 `;
 

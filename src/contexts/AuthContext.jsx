@@ -1,6 +1,15 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { LOGIN, LOGOUT, REGISTER, REFRESH_TOKEN } from "@/graphql/mutations";
+import {
+  LOGIN,
+  LOGOUT,
+  REGISTER,
+  REFRESH_TOKEN,
+  CHANGE_PASSWORD,
+  UPDATE_PROFILE,
+  REQUEST_LOGOUT_ALL_OTP,
+  LOGOUT_ALL,
+} from "@/graphql/mutations";
 import { GET_ME } from "@/graphql/queries";
 
 const AuthContext = createContext(null);
@@ -63,6 +72,10 @@ export const AuthProvider = ({ children }) => {
   const [registerMutation] = useMutation(REGISTER);
   const [logoutMutation] = useMutation(LOGOUT);
   const [refreshMutation] = useMutation(REFRESH_TOKEN);
+  const [changePasswordMutation] = useMutation(CHANGE_PASSWORD);
+  const [updateProfileMutation] = useMutation(UPDATE_PROFILE);
+  const [requestLogoutAllOTPMutation] = useMutation(REQUEST_LOGOUT_ALL_OTP);
+  const [logoutAllMutation] = useMutation(LOGOUT_ALL);
 
   // Set up token refresh interval
   useEffect(() => {
@@ -155,6 +168,83 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const changePassword = async (oldPassword, newPassword) => {
+    try {
+      await changePasswordMutation({
+        variables: { oldPassword, newPassword },
+      });
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error.graphQLErrors?.[0]?.message ||
+          error.message ||
+          "Failed to change password",
+      };
+    }
+  };
+
+  const updateProfile = async (profileData) => {
+    try {
+      await updateProfileMutation({
+        variables: profileData,
+      });
+      // Refetch user profile after successful update
+      const { data: userData } = await refetchMe();
+      if (userData?.getMyProfile) {
+        setUser(userData.getMyProfile);
+      }
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error.graphQLErrors?.[0]?.message ||
+          error.message ||
+          "Failed to update profile",
+      };
+    }
+  };
+
+  const requestLogoutAllOTP = async (email) => {
+    try {
+      await requestLogoutAllOTPMutation({
+        variables: { email },
+      });
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error.graphQLErrors?.[0]?.message ||
+          error.message ||
+          "Failed to request logout OTP",
+      };
+    }
+  };
+
+  const logoutAll = async (email, otp) => {
+    try {
+      await logoutAllMutation({
+        variables: { email, otp },
+      });
+      // Clear local session after logging out from all devices
+      localStorage.removeItem("accessToken");
+      setAccessToken(null);
+      setUser(null);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error.graphQLErrors?.[0]?.message ||
+          error.message ||
+          "Failed to logout from all devices",
+      };
+    }
+  };
+
   const value = {
     user,
     loading,
@@ -163,6 +253,10 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     refreshToken,
+    changePassword,
+    updateProfile,
+    requestLogoutAllOTP,
+    logoutAll,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
