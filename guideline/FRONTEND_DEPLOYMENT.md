@@ -17,6 +17,7 @@ Complete guide for deploying the Notes STT React frontend to production using st
 ## Prerequisites
 
 ### Server Requirements
+
 - **Server**: Ubuntu 20.04+ (same server as backend)
 - **Node.js**: v18+ installed globally
 - **Nginx**: Already configured from backend setup
@@ -26,6 +27,7 @@ Complete guide for deploying the Notes STT React frontend to production using st
 ### Backend Already Configured ✅
 
 Your server should already have from the backend deployment:
+
 - ✅ Nginx installed and configured
 - ✅ SSL certificate (Let's Encrypt)
 - ✅ Webhook service running on port 9000
@@ -33,6 +35,7 @@ Your server should already have from the backend deployment:
 - ✅ Firewall configured (UFW)
 
 **Backend is running at:**
+
 - API: `https://notes-stt.baokhangdev.click/graphql`
 - Webhook: `https://notes-stt.baokhangdev.click/webhook/`
 
@@ -64,7 +67,7 @@ mkdir -p ~/projects/notes-stt
 cd ~/projects/notes-stt
 
 # Clone frontend repository
-git clone https://github.com/YOUR_USERNAME/notes-stt-fe.git
+git clone https://github.com/YOUR_USERNAME/notes-stt-fe-web.git
 
 # Your structure should look like:
 ~/projects/notes-stt/
@@ -72,7 +75,7 @@ git clone https://github.com/YOUR_USERNAME/notes-stt-fe.git
 │   ├── deploy.sh
 │   ├── docker-compose.yml
 │   └── ...
-└── notes-stt-fe/          # Frontend (new)
+└── notes-stt-fe-web/          # Frontend (new)
     ├── deploy-frontend.sh
     ├── package.json
     ├── src/
@@ -82,7 +85,7 @@ git clone https://github.com/YOUR_USERNAME/notes-stt-fe.git
 ### 3. Create Frontend Deployment Script
 
 ```bash
-cd ~/projects/notes-stt/notes-stt-fe
+cd ~/projects/notes-stt/notes-stt-fe-web
 
 # Create deployment script
 nano deploy-frontend.sh
@@ -119,13 +122,13 @@ server {
         root /var/www/notes-stt.baokhangdev.click;
         index index.html;
         try_files $uri $uri/ /index.html;
-        
+
         # Cache static assets
         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
             expires 1y;
             add_header Cache-Control "public, immutable";
         }
-        
+
         # Don't cache index.html
         location = /index.html {
             expires -1;
@@ -165,7 +168,7 @@ chmod -R 755 /var/www/notes-stt.baokhangdev.click
 **Create environment file for production:**
 
 ```bash
-cd ~/projects/notes-stt/notes-stt-fe
+cd ~/projects/notes-stt/notes-stt-fe-web
 
 # Create .env.production (or update existing)
 nano .env.production
@@ -192,7 +195,7 @@ NODE_ENV=production
 Before setting up automation, test the build manually:
 
 ```bash
-cd ~/projects/notes-stt/notes-stt-fe
+cd ~/projects/notes-stt/notes-stt-fe-web
 
 # Install dependencies
 npm ci
@@ -258,8 +261,8 @@ sudo nano /opt/hooks/hooks.json
   },
   {
     "id": "deploy-frontend",
-    "execute-command": "/home/youruser/projects/notes-stt/notes-stt-fe/deploy-frontend.sh",
-    "command-working-directory": "/home/youruser/projects/notes-stt/notes-stt-fe",
+    "execute-command": "/home/youruser/projects/notes-stt/notes-stt-fe-web/deploy-frontend.sh",
+    "command-working-directory": "/home/youruser/projects/notes-stt/notes-stt-fe-web",
     "response-message": "Frontend deployment triggered!",
     "trigger-rule": {
       "and": [
@@ -332,14 +335,14 @@ sudo systemctl status webhook
 ### Method 1: Manual Test
 
 ```bash
-cd ~/projects/notes-stt/notes-stt-fe
+cd ~/projects/notes-stt/notes-stt-fe-web
 ./deploy-frontend.sh
 ```
 
 **Watch the logs:**
 
 ```bash
-tail -f ~/projects/notes-stt/notes-stt-fe/deploy.log
+tail -f ~/projects/notes-stt/notes-stt-fe-web/deploy.log
 ```
 
 ### Method 2: Trigger from GitHub
@@ -358,7 +361,7 @@ git push origin production
 sudo journalctl -u webhook -f
 
 # Terminal 2: Frontend deployment logs
-tail -f ~/projects/notes-stt/notes-stt-fe/deploy.log
+tail -f ~/projects/notes-stt/notes-stt-fe-web/deploy.log
 ```
 
 ### Method 3: Test from GitHub UI
@@ -385,6 +388,7 @@ curl https://notes-stt.baokhangdev.click/static/js/main.*.js
 ```
 
 **Test in browser:**
+
 - Open: `https://notes-stt.baokhangdev.click`
 - Check browser console for errors
 - Verify API calls work (should connect to `/graphql`)
@@ -421,7 +425,7 @@ curl https://notes-stt.baokhangdev.click/static/js/main.*.js
 
 ```bash
 # Watch frontend deployment logs
-tail -f ~/projects/notes-stt/notes-stt-fe/deploy.log
+tail -f ~/projects/notes-stt/notes-stt-fe-web/deploy.log
 
 # Watch webhook service logs
 sudo journalctl -u webhook -f
@@ -544,7 +548,7 @@ Server: ~/projects/notes-stt/
 │   ├── docker-compose.yml
 │   └── ...
 │
-└── notes-stt-fe/                        # Frontend (Static)
+└── notes-stt-fe-web/                        # Frontend (Static)
     ├── deploy-frontend.sh               ← Deployment script
     ├── deploy.log                       ← Deployment logs
     ├── package.json

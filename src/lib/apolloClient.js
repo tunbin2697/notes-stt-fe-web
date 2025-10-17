@@ -8,7 +8,9 @@ import { setContext } from "@apollo/client/link/context";
 import { onError } from "@apollo/client/link/error";
 
 const httpLink = createHttpLink({
-  uri: "http://localhost:3000/graphql",
+  uri:
+    import.meta.env.VITE_GRAPHQL_ENDPOINT ||
+    "https://notes-stt.baokhangdev.click/graphql",
   credentials: "include", // Important for cookies (refresh token)
 });
 
