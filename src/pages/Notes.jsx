@@ -93,6 +93,26 @@ export default function Notes() {
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold text-gray-800">📝 My Notes</h1>
             <div className="flex items-center gap-4">
+              {/* User Avatar */}
+              {user?.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={user.fullName || user.email}
+                  className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                      user.fullName || user.email || "User"
+                    )}&background=random`;
+                  }}
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold">
+                  {(user?.fullName || user?.email || "U")
+                    .charAt(0)
+                    .toUpperCase()}
+                </div>
+              )}
               <span className="text-sm text-gray-600">
                 Hello, {user?.fullName || user?.email || "User"}
               </span>
