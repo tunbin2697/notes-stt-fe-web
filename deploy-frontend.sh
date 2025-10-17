@@ -13,7 +13,7 @@ BRANCH="production"
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_FILE="${REPO_DIR}/deploy.log"
 WEB_ROOT="/var/www/notes-stt.baokhangdev.click"
-BUILD_DIR="${REPO_DIR}/build"
+BUILD_DIR="${REPO_DIR}/dist"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -62,11 +62,11 @@ log "Commit message: $CURRENT_COMMIT_MSG"
 
 # Check Node.js and npm
 log "Checking Node.js and npm installation"
-if ! command -v node &> /dev/null; then
+if ! command -v node >/dev/null 2>&1; then
     error "Node.js is not installed. Please install Node.js first."
     exit 1
 fi
-if ! command -v npm &> /dev/null; then
+if ! command -v npm >/dev/null 2>&1; then
     error "npm is not installed. Please install npm first."
     exit 1
 fi
@@ -115,7 +115,7 @@ fi
 # Check if build directory exists
 if [ ! -d "$BUILD_DIR" ]; then
     error "Build directory not found at $BUILD_DIR"
-    error "Build may have failed or output directory is different"
+    error "Vite build may have failed or output directory is different"
     exit 1
 fi
 

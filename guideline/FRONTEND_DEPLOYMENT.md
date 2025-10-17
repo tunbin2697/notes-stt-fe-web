@@ -203,9 +203,9 @@ npm ci
 # Build for production
 npm run build
 
-# Copy build to web root
+# Copy dist to web root
 sudo rm -rf /var/www/notes-stt.baokhangdev.click/*
-sudo cp -r build/* /var/www/notes-stt.baokhangdev.click/
+sudo cp -r dist/* /var/www/notes-stt.baokhangdev.click/
 
 # Test in browser
 curl https://notes-stt.baokhangdev.click
@@ -527,8 +527,8 @@ deploy-frontend.sh
         ↓
 1. Git pull latest code
 2. npm ci (install dependencies)
-3. npm run build (create static files)
-4. Copy build/* to /var/www/notes-stt.baokhangdev.click/
+3. npm run build (create static files with Vite)
+4. Copy dist/* to /var/www/notes-stt.baokhangdev.click/
         ↓
 Nginx serves static files
         ↓
@@ -555,7 +555,7 @@ Server: ~/projects/notes-stt/
     ├── .env.production                  ← Production config
     ├── src/
     ├── public/
-    └── build/                           ← Built files (gitignored)
+    └── dist/                            ← Built files (gitignored)
 
 Nginx serves from:
 /var/www/notes-stt.baokhangdev.click/    ← Static files copied here
