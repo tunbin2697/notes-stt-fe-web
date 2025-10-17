@@ -60,14 +60,37 @@ CURRENT_COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1)
 log "Repository updated to commit: $CURRENT_COMMIT"
 log "Commit message: $CURRENT_COMMIT_MSG"
 
+# Load NVM and Node.js
+log "Loading Node.js environment"
+
+# Load NVM if it exists
+export NVM_DIR="$HOME/.nvm"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+    log "Loading NVM from $NVM_DIR"
+    . "$NVM_DIR/nvm.sh"
+    nvm use default >/dev/null 2>&1 || true
+fi
+
+# Add Node.js to PATH (for both NVM and system installations)
+if [ -d "$HOME/.nvm/versions/node" ]; then
+    LATEST_NODE=$(ls -1 "$HOME/.nvm/versions/node" 2>/dev/null | sort -V | tail -1)
+    if [ -n "$LATEST_NODE" ]; then
+        export PATH="$HOME/.nvm/versions/node/$LATEST_NODE/bin:$PATH"
+        log "Added NVM Node.js to PATH: $LATEST_NODE"
+    fi
+fi
+
 # Check Node.js and npm
 log "Checking Node.js and npm installation"
 if ! command -v node >/dev/null 2>&1; then
-    error "Node.js is not installed. Please install Node.js first."
+    error "Node.js is not installed or not accessible."
+    error "Current PATH: $PATH"
+    error "NVM_DIR: $NVM_DIR"
     exit 1
 fi
 if ! command -v npm >/dev/null 2>&1; then
-    error "npm is not installed. Please install npm first."
+    error "npm is not installed or not accessible."
+    error "Current PATH: $PATH"
     exit 1
 fi
 
@@ -75,6 +98,7 @@ NODE_VERSION=$(node --version)
 NPM_VERSION=$(npm --version)
 log "✓ Node.js version: $NODE_VERSION"
 log "✓ npm version: $NPM_VERSION"
+log "✓ Node.js location: $(which node)"
 
 # Check if package.json exists
 if [ ! -f package.json ]; then
