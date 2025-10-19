@@ -11,6 +11,7 @@ set -euo pipefail
 
 BRANCH="production"
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_PATH="${REPO_DIR}/deploy-frontend.sh"
 LOG_FILE="${REPO_DIR}/deploy.log"
 WEB_ROOT="/var/www/notes-stt.baokhangdev.click"
 BUILD_DIR="${REPO_DIR}/dist"
