@@ -1,14 +1,13 @@
 import {
   ApolloClient,
   InMemoryCache,
-  createHttpLink,
-  from,
+  HttpLink,
+  ApolloLink,
+  Observable,
+  concat,
 } from "@apollo/client";
-import { setContext } from "@apollo/client/link/context";
-import { onError } from "@apollo/client/link/error";
-import { Observable } from "@apollo/client";
 
-const httpLink = createHttpLink({
+const httpLink = new HttpLink({
   uri:
     import.meta.env.VITE_GRAPHQL_ENDPOINT ||
     "https://notes-stt.baokhangdev.click/graphql",
@@ -54,85 +53,136 @@ const refreshAccessToken = async () => {
 };
 
 // Auth link to add access token to headers
-const authLink = setContext((_, { headers }) => {
+const authLink = new ApolloLink((operation, forward) => {
   const token = localStorage.getItem("accessToken");
-  return {
-    headers: {
-      ...headers,
-      ...(token && { authorization: `Bearer ${token}` }),
-    },
-  };
+
+  if (token) {
+    operation.setContext(({ headers = {} }) => ({
+      headers: {
+        ...headers,
+        authorization: `Bearer ${token}`,
+      },
+    }));
+  }
+
+  return forward(operation);
 });
 
-// Error handling link with automatic token refresh
-const errorLink = onError(
-  ({ graphQLErrors, networkError, operation, forward }) => {
-    if (graphQLErrors) {
-      for (const err of graphQLErrors) {
-        console.error(`[GraphQL error]: ${err.message}`);
+// Custom link to intercept and handle auth errors from response
+const authRefreshLink = new ApolloLink((operation, forward) => {
+  return new Observable((observer) => {
+    let subscription;
 
-        // Check if error is authentication related
-        if (
-          err.extensions?.code === "UNAUTHENTICATED" ||
-          err.message.includes("Unauthorized") ||
-          err.message.includes("Invalid token") ||
-          err.message.includes("Token expired")
-        ) {
-          // Get operation identifier for tracking attempts
-          const operationId = operation.operationName || "unknown";
-          const attempts = refreshAttempts.get(operationId) || 0;
+    Promise.resolve(operation)
+      .then(() => {
+        subscription = forward(operation).subscribe({
+          next: (result) => {
+            // Check if response has auth errors
+            if (result.errors && result.errors.length > 0) {
+              const authError = result.errors.find(
+                (err) =>
+                  err.extensions?.code === "UNAUTHORIZED" ||
+                  err.extensions?.code === "UNAUTHENTICATED" ||
+                  err.message?.includes("Unauthorized") ||
+                  err.message?.includes("Invalid token") ||
+                  err.message?.includes("Token expired")
+              );
 
-          // Try refresh up to 2 times
-          if (attempts < 2) {
-            refreshAttempts.set(operationId, attempts + 1);
+              if (authError) {
+                console.log(
+                  "Auth error detected, checking if should refresh..."
+                );
 
-            // Return observable to retry the request after token refresh
-            return new Observable((observer) => {
-              refreshAccessToken()
-                .then((newToken) => {
-                  // Update the operation context with new token
-                  operation.setContext(({ headers = {} }) => ({
-                    headers: {
-                      ...headers,
-                      authorization: `Bearer ${newToken}`,
-                    },
-                  }));
+                const hasToken = localStorage.getItem("accessToken");
 
-                  // Retry the request
-                  const subscriber = {
-                    next: observer.next.bind(observer),
-                    error: observer.error.bind(observer),
-                    complete: observer.complete.bind(observer),
-                  };
+                if (!hasToken) {
+                  console.log("Skipping token refresh - no token");
+                  observer.next(result);
+                  observer.complete();
+                  return;
+                }
 
-                  forward(operation).subscribe(subscriber);
-                })
-                .catch((error) => {
-                  // If refresh fails, reset attempts and error out
+                // Get operation identifier for tracking attempts
+                const operationId = operation.operationName || "unknown";
+                const attempts = refreshAttempts.get(operationId) || 0;
+
+                // Try refresh up to 2 times
+                if (attempts < 2) {
+                  refreshAttempts.set(operationId, attempts + 1);
+                  console.log(
+                    `Attempting token refresh (attempt ${attempts + 1}/2)`
+                  );
+
+                  // Attempt to refresh token and retry
+                  refreshAccessToken()
+                    .then((newToken) => {
+                      console.log("Token refreshed, retrying operation");
+                      refreshAttempts.delete(operationId);
+
+                      // Update headers with new token
+                      operation.setContext(({ headers = {} }) => ({
+                        headers: {
+                          ...headers,
+                          authorization: `Bearer ${newToken}`,
+                        },
+                      }));
+
+                      // Retry the operation
+                      const retrySubscription = forward(operation).subscribe({
+                        next: observer.next.bind(observer),
+                        error: observer.error.bind(observer),
+                        complete: observer.complete.bind(observer),
+                      });
+
+                      // Handle unsubscribe
+                      return () => {
+                        if (retrySubscription) retrySubscription.unsubscribe();
+                      };
+                    })
+                    .catch((error) => {
+                      console.error("Token refresh failed:", error);
+                      refreshAttempts.delete(operationId);
+                      observer.error(error);
+                    });
+
+                  return;
+                } else {
+                  // Max attempts reached
                   refreshAttempts.delete(operationId);
-                  observer.error(error);
-                });
-            });
-          } else {
-            // Max attempts reached, clear and redirect to login
-            refreshAttempts.delete(operationId);
-            console.error("Max token refresh attempts reached");
-            localStorage.removeItem("accessToken");
-            window.location.href = "/login";
-          }
-        }
-      }
-    }
+                  console.error("Max token refresh attempts reached");
+                  localStorage.removeItem("accessToken");
+                  window.location.href = "/login";
+                  return;
+                }
+              }
+            }
 
-    if (networkError) {
-      console.error(`[Network error]: ${networkError}`);
-    }
-  }
-);
+            // No auth error, pass through
+            observer.next(result);
+            observer.complete();
+          },
+          error: (error) => {
+            observer.error(error);
+          },
+          complete: () => {
+            observer.complete();
+          },
+        });
+      })
+      .catch((error) => {
+        observer.error(error);
+      });
+
+    // Cleanup function
+    return () => {
+      if (subscription) subscription.unsubscribe();
+    };
+  });
+});
 
 // Create Apollo Client
 const client = new ApolloClient({
-  link: from([errorLink, authLink, httpLink]),
+  link: concat(authLink, concat(authRefreshLink, httpLink)),
   cache: new InMemoryCache({
     typePolicies: {
       Query: {
