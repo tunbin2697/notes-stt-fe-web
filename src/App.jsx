@@ -10,6 +10,7 @@ import ChangePassword from "@/pages/ChangePassword";
 import LogoutAll from "@/pages/LogoutAll";
 import Profile from "@/pages/Profile";
 import Notes from "@/pages/Notes";
+import NoteEditor from "@/pages/NoteEditor";
 import Test from "@/pages/Test";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
@@ -86,6 +87,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <Notes />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notes/new"
+            element={
+              <ProtectedRoute>
+                <NoteEditor />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notes/edit/:id"
+            element={
+              <ProtectedRoute>
+                <NoteEditor />
               </ProtectedRoute>
             }
           />

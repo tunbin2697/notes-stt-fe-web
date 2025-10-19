@@ -44,18 +44,30 @@ export default function NoteFilters({ filters, onChange }) {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Priority
+            Due Status
           </label>
           <select
-            value={filters.priority || "ALL"}
-            onChange={(e) => handleChange("priority", e.target.value)}
+            value={
+              filters.isUpcoming
+                ? "UPCOMING"
+                : filters.isOverdue
+                ? "OVERDUE"
+                : "ALL"
+            }
+            onChange={(e) => {
+              if (e.target.value === "UPCOMING") {
+                onChange({ ...filters, isUpcoming: true, isOverdue: null });
+              } else if (e.target.value === "OVERDUE") {
+                onChange({ ...filters, isUpcoming: null, isOverdue: true });
+              } else {
+                onChange({ ...filters, isUpcoming: null, isOverdue: null });
+              }
+            }}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
-            <option value="ALL">All Priorities</option>
-            <option value="LOW">Low</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="HIGH">High</option>
-            <option value="URGENT">Urgent</option>
+            <option value="ALL">All</option>
+            <option value="UPCOMING">Upcoming (7 days)</option>
+            <option value="OVERDUE">Overdue</option>
           </select>
         </div>
 

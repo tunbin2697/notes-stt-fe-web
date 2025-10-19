@@ -55,6 +55,12 @@ git reset --hard "origin/$BRANCH" 2>&1 | tee -a "$LOG_FILE"
 log "Cleaning untracked files"
 git clean -fdx 2>&1 | tee -a "$LOG_FILE"
 
+# CRITICAL: Restore execute permission immediately after git reset
+# git reset --hard replaces deploy.sh with the version from git, which may not have +x
+log "Restoring execute permission on deploy.sh after git reset..."
+chmod +x "$SCRIPT_PATH" 2>&1 | tee -a "$LOG_FILE"
+log "✓ Execute permission restored for next webhook run"
+
 CURRENT_COMMIT=$(git rev-parse --short HEAD)
 CURRENT_COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1)
 log "Repository updated to commit: $CURRENT_COMMIT"

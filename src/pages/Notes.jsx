@@ -1,19 +1,17 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@apollo/client/react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { GET_MY_NOTES } from "@/graphql/queries";
-import { CREATE_NOTE, UPDATE_NOTE } from "@/graphql/mutations";
 import { useAuth } from "@/contexts/AuthContext";
 import NoteCard from "@/components/NoteCard";
-import NoteForm from "@/components/NoteForm";
 import NoteFilters from "@/components/NoteFilters";
 
 export default function Notes() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [filters, setFilters] = useState({ isArchived: false });
   const [page, setPage] = useState(1);
-  const [showForm, setShowForm] = useState(false);
-  const [editingNote, setEditingNote] = useState(null);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const limit = 20;
 
@@ -34,47 +32,36 @@ export default function Notes() {
     },
   });
 
-  const [createNote] = useMutation(CREATE_NOTE, {
-    onCompleted: () => {
-      setShowForm(false);
-      refetch();
-    },
-  });
-
-  const [updateNote] = useMutation(UPDATE_NOTE, {
-    onCompleted: () => {
-      setShowForm(false);
-      setEditingNote(null);
-      refetch();
-    },
-  });
-
-  const handleCreateNote = async (input) => {
-    try {
-      await createNote({ variables: { input } });
-    } catch (error) {
-      alert("Failed to create note: " + error.message);
-    }
+  const toggleQuickFilter = (key, value) => {
+    setFilters((prev) => {
+      if (prev[key] === value) {
+        // Remove filter if clicking same value
+        return { ...prev, [key]: null };
+      }
+      return { ...prev, [key]: value };
+    });
   };
 
-  const handleUpdateNote = async (input) => {
-    try {
-      await updateNote({
-        variables: { id: editingNote.id, input },
-      });
-    } catch (error) {
-      alert("Failed to update note: " + error.message);
-    }
-  };
+  const quickFilters = [
+    { label: "📝 Note", key: "type", value: "NOTE" },
+    { label: "✅ Task", key: "type", value: "TASK" },
+    { label: "📋 Todo", key: "type", value: "TODO" },
+    { label: "⏰ Reminder", key: "type", value: "REMINDER" },
+    { label: "⏳ Pending", key: "status", value: "PENDING" },
+    { label: "🔄 In Progress", key: "status", value: "IN_PROGRESS" },
+    { label: "✔️ Completed", key: "status", value: "COMPLETED" },
+    { label: "📅 Upcoming", key: "isUpcoming", value: true },
+    { label: "🔴 Overdue", key: "isOverdue", value: true },
+    { label: "📌 Pinned", key: "isPinned", value: true },
+  ];
+
+  const activeFilterCount = Object.keys(filters).filter(
+    (key) =>
+      filters[key] !== null && filters[key] !== false && key !== "isArchived"
+  ).length;
 
   const handleEdit = (note) => {
-    setEditingNote(note);
-    setShowForm(true);
-  };
-
-  const handleCancel = () => {
-    setShowForm(false);
-    setEditingNote(null);
+    navigate(`/notes/edit/${note.id}`, { state: { note } });
   };
 
   const notes = data?.notes?.nodes || [];
@@ -135,7 +122,33 @@ export default function Notes() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Search and Create */}
-        <div className="mb-6 flex gap-4">
+        <div className="mb-4 flex gap-4">
+          {/* Filter Toggle Button */}
+          <button
+            onClick={() => setShowFilterPanel(!showFilterPanel)}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors relative"
+            title="Toggle filters"
+          >
+            <svg
+              className="w-5 h-5 text-gray-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+              />
+            </svg>
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+
           <input
             type="text"
             placeholder="Search notes..."
@@ -144,29 +157,49 @@ export default function Notes() {
             className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <button
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => navigate("/notes/new")}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors whitespace-nowrap"
           >
-            {showForm ? "✖ Cancel" : "+ New Note"}
+            + New Note
           </button>
         </div>
 
-        {/* Note Form */}
-        {showForm && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2 className="text-xl font-semibold mb-4">
-              {editingNote ? "Edit Note" : "Create New Note"}
-            </h2>
-            <NoteForm
-              note={editingNote}
-              onSubmit={editingNote ? handleUpdateNote : handleCreateNote}
-              onCancel={handleCancel}
-            />
+        {/* Quick Filters - Horizontal Scroll */}
+        <div className="mb-6 overflow-x-auto">
+          <div className="flex gap-2 pb-2">
+            {quickFilters.map((filter) => {
+              const isActive = filters[filter.key] === filter.value;
+              return (
+                <button
+                  key={`${filter.key}-${filter.value}`}
+                  onClick={() => toggleQuickFilter(filter.key, filter.value)}
+                  className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-medium transition-all ${
+                    isActive
+                      ? "bg-blue-600 text-white shadow-md"
+                      : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
+            {activeFilterCount > 0 && (
+              <button
+                onClick={() => setFilters({ isArchived: false })}
+                className="px-4 py-2 rounded-full whitespace-nowrap text-sm font-medium bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors"
+              >
+                ✖ Clear all
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Advanced Filters Panel */}
+        {showFilterPanel && (
+          <div className="mb-6">
+            <NoteFilters filters={filters} onChange={setFilters} />
           </div>
         )}
-
-        {/* Filters */}
-        <NoteFilters filters={filters} onChange={setFilters} />
 
         {/* Stats */}
         <div className="mb-6 flex items-center justify-between">
@@ -191,9 +224,9 @@ export default function Notes() {
                 ? "No notes found matching your search"
                 : "No notes yet"}
             </p>
-            {!showForm && !searchQuery && (
+            {!searchQuery && (
               <button
-                onClick={() => setShowForm(true)}
+                onClick={() => navigate("/notes/new")}
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Create your first note

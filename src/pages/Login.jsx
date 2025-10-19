@@ -177,7 +177,7 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="mt-6 text-center">
+        <div className="mt-6 text-center space-y-3">
           <p className="text-sm text-gray-600">
             Don't have an account?{" "}
             <Link
@@ -186,6 +186,17 @@ export default function Login() {
             >
               Sign up
             </Link>
+          </p>
+          <p className="text-sm text-gray-600">
+            Need help?{" "}
+            <a
+              href="https://forms.gle/2q5Y6zsJ2LKxXuSh7"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Contact Support
+            </a>
           </p>
         </div>
       </div>
