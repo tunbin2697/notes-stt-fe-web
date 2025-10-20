@@ -150,18 +150,79 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-### 5. Create Web Root Directory
+### 5. Set Up Proper Permissions (IMPORTANT!)
+
+This step configures permissions so your deployment script can write to the web root without requiring sudo (no password prompts).
+
+**Step 1: Create webdev group and add users**
 
 ```bash
-# Create directory for static files
+# Create webdev group (if doesn't exist)
+sudo groupadd webdev
+
+# Add your user to webdev group
+sudo usermod -a -G webdev $USER
+
+# Add www-data (Nginx) to webdev group
+sudo usermod -a -G webdev www-data
+
+# Verify group membership
+groups $USER
+groups www-data
+
+# Log out and back in for group changes to take effect
+exit
+# (SSH back in)
+```
+
+**Step 2: Set ownership and permissions for project directory**
+
+```bash
+# Set ownership: user owns, webdev group has access
+sudo chown -R $USER:webdev ~/projects/notes-stt
+
+# Set permissions: 775 = owner & group can write, others can read
+sudo chmod -R 775 ~/projects/notes-stt
+
+# Set SGID bit: new files inherit group ownership automatically
+sudo chmod g+s ~/projects/notes-stt
+```
+
+**Step 3: Set ownership and permissions for web root**
+
+```bash
+# Create web root directory
 sudo mkdir -p /var/www/notes-stt.baokhangdev.click
 
-# Set ownership to your user
-sudo chown -R $USER:$USER /var/www/notes-stt.baokhangdev.click
+# Set ownership: user owns, webdev group has access
+sudo chown -R $USER:webdev /var/www/notes-stt.baokhangdev.click
 
-# Set permissions
-chmod -R 755 /var/www/notes-stt.baokhangdev.click
+# Set permissions: 775 = owner & group can write, others can read
+sudo chmod -R 775 /var/www/notes-stt.baokhangdev.click
+
+# Set SGID bit: new files inherit webdev group
+sudo chmod g+s /var/www/notes-stt.baokhangdev.click
 ```
+
+**Step 4: Create backup directory with same permissions**
+
+```bash
+# Create backup directory
+sudo mkdir -p /var/www/backups
+
+# Set ownership and permissions
+sudo chown -R $USER:webdev /var/www/backups
+sudo chmod -R 775 /var/www/backups
+sudo chmod g+s /var/www/backups
+```
+
+**Why this works:**
+
+- ✅ **No sudo needed**: Your user can write files directly
+- ✅ **Nginx can read**: www-data is in webdev group with read access
+- ✅ **SGID bit**: New files automatically inherit webdev group
+- ✅ **Webhook friendly**: No password prompts during automation
+- ✅ **Secure**: Proper separation with 775 permissions
 
 ### 6. Configure Environment Variables
 
@@ -190,7 +251,38 @@ NODE_ENV=production
 
 **Important:** Add `.env.production` to `.gitignore` if it contains sensitive data, or commit it if values are public.
 
-### 7. Test Manual Build
+### 7. Configure Passwordless Sudo for Nginx (Only Required for Nginx Reload)
+
+The deployment script needs to reload Nginx after deployment. This requires minimal sudo access:
+
+```bash
+# Create sudoers file for deployment
+sudo visudo -f /etc/sudoers.d/deploy-frontend
+```
+
+**Add this single line (replace YOUR_USERNAME with your actual username):**
+
+```
+YOUR_USERNAME ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /bin/systemctl reload nginx, /bin/systemctl status nginx
+```
+
+**Save and exit (Ctrl+X, Y, Enter)**
+
+**Test it works:**
+
+```bash
+# Should work without password prompt
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+**Why minimal sudo?**
+
+- ✅ **Only Nginx commands**: Can't run other sudo commands
+- ✅ **No password prompt**: Works in automated webhooks
+- ✅ **Secure**: Specific commands only, no system-wide access
+
+### 8. Test Manual Build
 
 Before setting up automation, test the build manually:
 
@@ -203,14 +295,31 @@ npm ci
 # Build for production
 npm run build
 
-# Copy dist to web root
-sudo rm -rf /var/www/notes-stt.baokhangdev.click/*
-sudo cp -r dist/* /var/www/notes-stt.baokhangdev.click/
+# Copy dist to web root (no sudo needed now!)
+rm -rf /var/www/notes-stt.baokhangdev.click/*
+cp -r dist/* /var/www/notes-stt.baokhangdev.click/
+
+# Verify files and permissions
+ls -la /var/www/notes-stt.baokhangdev.click/
+# Should show: owner=youruser, group=webdev
 
 # Test in browser
 curl https://notes-stt.baokhangdev.click
-
 # Should return your React app HTML
+```
+
+**Verify permissions are correct:**
+
+```bash
+# Check web root ownership
+ls -ld /var/www/notes-stt.baokhangdev.click
+# Should show: drwxrwsr-x ... youruser webdev
+
+# Check a file inside
+ls -l /var/www/notes-stt.baokhangdev.click/index.html
+# Should show: -rwxr-xr-x ... youruser webdev
+
+# The 's' in group permissions means SGID is set ✅
 ```
 
 ---
@@ -444,6 +553,104 @@ du -sh /var/www/notes-stt.baokhangdev.click/
 
 ## Troubleshooting
 
+### Problem: "sudo: a terminal is required to read the password"
+
+This happens when the deployment script runs via webhook and tries to use sudo commands that require a password.
+
+**Solution:** Use the proper permission setup (see Step 5 above)
+
+```bash
+# 1. Create webdev group and add users
+sudo groupadd webdev
+sudo usermod -a -G webdev $USER
+sudo usermod -a -G webdev www-data
+
+# 2. Set project permissions
+sudo chown -R $USER:webdev ~/projects/notes-stt
+sudo chmod -R 775 ~/projects/notes-stt
+sudo chmod g+s ~/projects/notes-stt
+
+# 3. Set web root permissions
+sudo chown -R $USER:webdev /var/www/notes-stt.baokhangdev.click
+sudo chmod -R 775 /var/www/notes-stt.baokhangdev.click
+sudo chmod g+s /var/www/notes-stt.baokhangdev.click
+
+# 4. Set backup directory permissions
+sudo mkdir -p /var/www/backups
+sudo chown -R $USER:webdev /var/www/backups
+sudo chmod -R 775 /var/www/backups
+sudo chmod g+s /var/www/backups
+
+# 5. Configure minimal sudo for Nginx only
+sudo visudo -f /etc/sudoers.d/deploy-frontend
+# Add: YOUR_USERNAME ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /bin/systemctl reload nginx, /bin/systemctl status nginx
+
+# 6. Verify by running deployment script manually
+cd ~/projects/notes-stt/notes-stt-fe-web
+./deploy-frontend.sh
+# Should complete without password prompts
+```
+
+### Problem: "Permission denied" when copying files
+
+```bash
+# Check current permissions
+ls -ld /var/www/notes-stt.baokhangdev.click
+ls -ld ~/projects/notes-stt
+
+# Verify you're in webdev group
+groups $USER
+# Should include "webdev"
+
+# If not, add yourself and re-login
+sudo usermod -a -G webdev $USER
+exit
+# SSH back in
+
+# Reapply permissions
+sudo chown -R $USER:webdev /var/www/notes-stt.baokhangdev.click
+sudo chmod -R 775 /var/www/notes-stt.baokhangdev.click
+sudo chmod g+s /var/www/notes-stt.baokhangdev.click
+```
+
+### Problem: Files deploy but Nginx can't read them (403 Forbidden)
+
+```bash
+# Check if www-data is in webdev group
+groups www-data
+# Should include "webdev"
+
+# If not, add www-data to webdev group
+sudo usermod -a -G webdev www-data
+
+# Restart Nginx to apply group changes
+sudo systemctl restart nginx
+
+# Verify file permissions allow group read
+ls -l /var/www/notes-stt.baokhangdev.click/
+# Should show: -rwxrwxr-x ... youruser webdev
+```
+
+### Problem: Icon file missing after deployment
+
+```bash
+# Check if icon exists in source
+ls -la src/assets/icons/
+
+# Check index.html icon path
+cat index.html | grep "icon"
+# Should show: href="/src/assets/icons/note_icon.png"
+
+# Rebuild and check dist folder
+npm run build
+ls -la dist/assets/
+# Should see: note_icon-[hash].png
+
+# Check generated index.html
+cat dist/index.html | grep "icon"
+# Should show: href="/assets/note_icon-[hash].png"
+```
+
 ### Problem: "npm: command not found"
 
 ```bash
@@ -469,9 +676,8 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run build
 # Check file permissions
 ls -la /var/www/notes-stt.baokhangdev.click/
 
-# Fix permissions if needed
-sudo chown -R $USER:$USER /var/www/notes-stt.baokhangdev.click
-chmod -R 755 /var/www/notes-stt.baokhangdev.click
+# Verify Nginx can read files
+sudo -u www-data test -r /var/www/notes-stt.baokhangdev.click/index.html && echo "OK" || echo "FAIL"
 
 # Check Nginx configuration
 sudo nginx -t
