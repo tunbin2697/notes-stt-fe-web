@@ -28,6 +28,7 @@ export const AuthProvider = ({ children }) => {
   const [accessToken, setAccessToken] = useState(
     localStorage.getItem("accessToken")
   );
+  const [initialCheckDone, setInitialCheckDone] = useState(false);
 
   // Queries and mutations
   const {
@@ -40,8 +41,64 @@ export const AuthProvider = ({ children }) => {
     fetchPolicy: "network-only",
   });
 
+  // Initial token refresh check on app load
+  useEffect(() => {
+    const checkInitialAuth = async () => {
+      const storedToken = localStorage.getItem("accessToken");
+
+      // If no token, try to refresh from cookie
+      if (!storedToken) {
+        console.log(
+          "No accessToken found, attempting to refresh from cookie..."
+        );
+        try {
+          const response = await fetch(
+            import.meta.env.VITE_GRAPHQL_ENDPOINT ||
+              "https://notes-stt.baokhangdev.click/graphql",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              credentials: "include", // Send refresh token cookie
+              body: JSON.stringify({
+                query: `mutation { refresh { accessToken } }`,
+              }),
+            }
+          );
+
+          const result = await response.json();
+
+          if (result.data?.refresh?.accessToken) {
+            const newToken = result.data.refresh.accessToken;
+            localStorage.setItem("accessToken", newToken);
+            setAccessToken(newToken);
+            console.log("Token refreshed successfully on app load");
+          } else {
+            console.log("No valid refresh token available");
+            setLoading(false);
+          }
+        } catch (error) {
+          console.error("Initial token refresh failed:", error);
+          setLoading(false);
+        }
+      }
+
+      setInitialCheckDone(true);
+    };
+
+    if (!initialCheckDone) {
+      checkInitialAuth();
+    }
+  }, [initialCheckDone]);
+
   // Update user and loading state when query data changes
   useEffect(() => {
+    // Wait for initial token check to complete
+    if (!initialCheckDone) {
+      return;
+    }
+
     if (!accessToken) {
       setLoading(false);
       setUser(null);
@@ -66,7 +123,7 @@ export const AuthProvider = ({ children }) => {
       setUser(meData.getMyProfile);
       setLoading(false);
     }
-  }, [accessToken, queryLoading, queryError, meData]);
+  }, [initialCheckDone, accessToken, queryLoading, queryError, meData]);
 
   const [loginMutation] = useMutation(LOGIN);
   const [registerMutation] = useMutation(REGISTER);
