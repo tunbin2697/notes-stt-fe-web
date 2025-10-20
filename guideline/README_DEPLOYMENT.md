@@ -12,6 +12,7 @@ Complete deployment documentation and scripts for the Notes STT application (Bac
 | -------------------------- | ------------------------- | ------------------------------------------------------ |
 | **DEPLOYMENT.md**          | Backend deployment guide  | Setting up NestJS backend with Docker & webhooks       |
 | **FRONTEND_DEPLOYMENT.md** | Frontend deployment guide | Setting up React frontend with static files & webhooks |
+| **PERMISSION_SETUP.md**    | Permission configuration  | Configuring file permissions for webhook deployment    |
 | **API_GUIDE.md**           | API documentation         | Understanding GraphQL endpoints                        |
 
 ### 📜 Deployment Scripts
@@ -337,11 +338,13 @@ sudo tail -f /var/log/nginx/notes-stt.baokhangdev.click.access.log
 ## 📞 Need Help?
 
 1. **Check the guides:**
+
    - Backend: [DEPLOYMENT.md](./DEPLOYMENT.md)
    - Frontend: [FRONTEND_DEPLOYMENT.md](./FRONTEND_DEPLOYMENT.md)
    - API: [API_GUIDE.md](./API_GUIDE.md)
 
 2. **Review logs:**
+
    - Deployment logs in each repo's `deploy.log`
    - Webhook logs: `sudo journalctl -u webhook -f`
    - Nginx logs: `/var/log/nginx/`

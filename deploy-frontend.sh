@@ -6,11 +6,17 @@
 # - The repo has a `production` branch that contains the code to deploy
 # - Node.js and npm are installed globally on the server
 # - Nginx is configured to serve from /var/www/notes-stt.baokhangdev.click
+# - Proper permissions are set (see deployment guide):
+#   * Project and web root owned by user:webdev group
+#   * Both directories have 775 permissions
+#   * SGID bit set for automatic group inheritance
+#   * www-data user is member of webdev group
 
 set -euo pipefail
 
 BRANCH="production"
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_PATH="${REPO_DIR}/deploy-frontend.sh"
 LOG_FILE="${REPO_DIR}/deploy.log"
 WEB_ROOT="/var/www/notes-stt.baokhangdev.click"
 BUILD_DIR="${REPO_DIR}/dist"
@@ -153,25 +159,13 @@ fi
 BUILD_SIZE=$(du -sh "$BUILD_DIR" | cut -f1)
 log "Build directory size: $BUILD_SIZE"
 
-# Backup current deployment (optional)
-if [ -d "$WEB_ROOT" ] && [ "$(ls -A $WEB_ROOT)" ]; then
-    BACKUP_DIR="${WEB_ROOT}_backup_$(date +'%Y%m%d_%H%M%S')"
-    log "Creating backup of current deployment"
-    sudo cp -r "$WEB_ROOT" "$BACKUP_DIR" 2>&1 | tee -a "$LOG_FILE" || warn "Backup failed, continuing anyway"
-    log "✓ Backup created at: $BACKUP_DIR"
-    
-    # Keep only last 3 backups
-    log "Cleaning old backups (keeping last 3)"
-    ls -dt ${WEB_ROOT}_backup_* 2>/dev/null | tail -n +4 | xargs sudo rm -rf 2>&1 | tee -a "$LOG_FILE" || true
-fi
-
 # Deploy built files
 log "Deploying built files to $WEB_ROOT"
 log "Removing old files from web root"
-sudo rm -rf ${WEB_ROOT}/* 2>&1 | tee -a "$LOG_FILE"
+rm -rf ${WEB_ROOT}/* 2>&1 | tee -a "$LOG_FILE"
 
 log "Copying new build to web root"
-sudo cp -r ${BUILD_DIR}/* ${WEB_ROOT}/ 2>&1 | tee -a "$LOG_FILE"
+cp -r ${BUILD_DIR}/* ${WEB_ROOT}/ 2>&1 | tee -a "$LOG_FILE"
 DEPLOY_EXIT_CODE=$?
 
 if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
@@ -181,11 +175,10 @@ else
     exit 1
 fi
 
-# Set correct permissions
-log "Setting file permissions"
-sudo chown -R www-data:www-data ${WEB_ROOT} 2>&1 | tee -a "$LOG_FILE"
-sudo chmod -R 755 ${WEB_ROOT} 2>&1 | tee -a "$LOG_FILE"
-log "✓ Permissions set (owner: www-data, mode: 755)"
+# Ensure correct permissions (group ownership is inherited via SGID bit)
+log "Verifying file permissions"
+chmod -R 755 ${WEB_ROOT} 2>&1 | tee -a "$LOG_FILE"
+log "✓ Permissions verified (mode: 755, group: webdev via SGID)"
 
 # Verify deployment
 log "Verifying deployment"
@@ -193,6 +186,15 @@ if [ -f "${WEB_ROOT}/index.html" ]; then
     log "✓ index.html found in web root"
     FILE_COUNT=$(find ${WEB_ROOT} -type f | wc -l)
     log "  Total files deployed: $FILE_COUNT"
+    
+    # Verify icon file is present
+    ICON_COUNT=$(find ${WEB_ROOT}/assets -type f -name "note_icon-*.png" 2>/dev/null | wc -l)
+    if [ $ICON_COUNT -gt 0 ]; then
+        ICON_FILE=$(find ${WEB_ROOT}/assets -type f -name "note_icon-*.png" 2>/dev/null | head -1)
+        log "✓ Icon file found: $(basename $ICON_FILE)"
+    else
+        warn "Icon file not found in assets folder"
+    fi
 else
     error "index.html not found in web root!"
     error "Deployment may have failed"
