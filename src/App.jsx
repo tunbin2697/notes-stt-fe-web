@@ -79,14 +79,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/logout-all"
-            element={
-              <ProtectedRoute>
-                <LogoutAll />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/logout-all" element={<LogoutAll />} />
           <Route
             path="/profile"
             element={

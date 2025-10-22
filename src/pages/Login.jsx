@@ -1,15 +1,54 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { isValidEmail, validatePassword } from "@/utils/helpers";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, googleAuth } = useAuth();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const googleButtonRef = useRef(null);
+
+  // Initialize Google One Tap
+  useEffect(() => {
+    if (window.google && googleButtonRef.current) {
+      // Initialize Google One Tap
+      window.google.accounts.id.initialize({
+        client_id:
+          import.meta.env.VITE_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID",
+        callback: handleGoogleResponse,
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+
+      // Render the Google Sign-In button
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: "outline",
+        size: "large",
+        width: googleButtonRef.current.offsetWidth,
+        text: "signin_with",
+        shape: "rectangular",
+      });
+
+      // Optionally show One Tap prompt
+      window.google.accounts.id.prompt();
+    }
+  }, []);
+
+  const handleGoogleResponse = async (response) => {
+    setLoading(true);
+    const result = await googleAuth(response.credential);
+    setLoading(false);
+
+    if (result.success) {
+      navigate("/notes");
+    } else {
+      setErrors({ submit: result.error });
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -176,6 +215,23 @@ export default function Login() {
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
+
+        {/* Divider */}
+        <div className="mt-6 mb-6">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">
+                Or continue with
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Google Sign-In Button */}
+        <div ref={googleButtonRef} className="w-full flex justify-center"></div>
 
         <div className="mt-6 text-center space-y-3">
           <p className="text-sm text-gray-600">

@@ -16,6 +16,14 @@ export const LOGIN = gql`
   }
 `;
 
+export const GOOGLE_AUTH = gql`
+  mutation GoogleAuth($input: GoogleAuthInput!) {
+    googleAuth(input: $input) {
+      accessToken
+    }
+  }
+`;
+
 export const LOGOUT = gql`
   mutation Logout {
     logout

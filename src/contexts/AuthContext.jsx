@@ -4,6 +4,7 @@ import {
   LOGIN,
   LOGOUT,
   REGISTER,
+  GOOGLE_AUTH,
   REFRESH_TOKEN,
   CHANGE_PASSWORD,
   UPDATE_PROFILE,
@@ -23,6 +24,16 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
+  const [loginMutation] = useMutation(LOGIN);
+  const [registerMutation] = useMutation(REGISTER);
+  const [googleAuthMutation] = useMutation(GOOGLE_AUTH);
+  const [logoutMutation] = useMutation(LOGOUT);
+  const [refreshMutation] = useMutation(REFRESH_TOKEN);
+  const [changePasswordMutation] = useMutation(CHANGE_PASSWORD);
+  const [updateProfileMutation] = useMutation(UPDATE_PROFILE);
+  const [requestLogoutAllOTPMutation] = useMutation(REQUEST_LOGOUT_ALL_OTP);
+  const [logoutAllMutation] = useMutation(LOGOUT_ALL);
+
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState(
@@ -52,25 +63,10 @@ export const AuthProvider = ({ children }) => {
           "No accessToken found, attempting to refresh from cookie..."
         );
         try {
-          const response = await fetch(
-            import.meta.env.VITE_GRAPHQL_ENDPOINT ||
-              "https://notes-stt.baokhangdev.click/graphql",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              credentials: "include", // Send refresh token cookie
-              body: JSON.stringify({
-                query: `mutation { refresh { accessToken } }`,
-              }),
-            }
-          );
+          const { data } = await refreshMutation();
 
-          const result = await response.json();
-
-          if (result.data?.refresh?.accessToken) {
-            const newToken = result.data.refresh.accessToken;
+          if (data?.refresh?.accessToken) {
+            const newToken = data.refresh.accessToken;
             localStorage.setItem("accessToken", newToken);
             setAccessToken(newToken);
             console.log("Token refreshed successfully on app load");
@@ -124,15 +120,6 @@ export const AuthProvider = ({ children }) => {
       setLoading(false);
     }
   }, [initialCheckDone, accessToken, queryLoading, queryError, meData]);
-
-  const [loginMutation] = useMutation(LOGIN);
-  const [registerMutation] = useMutation(REGISTER);
-  const [logoutMutation] = useMutation(LOGOUT);
-  const [refreshMutation] = useMutation(REFRESH_TOKEN);
-  const [changePasswordMutation] = useMutation(CHANGE_PASSWORD);
-  const [updateProfileMutation] = useMutation(UPDATE_PROFILE);
-  const [requestLogoutAllOTPMutation] = useMutation(REQUEST_LOGOUT_ALL_OTP);
-  const [logoutAllMutation] = useMutation(LOGOUT_ALL);
 
   // Set up token refresh interval
   useEffect(() => {
@@ -194,6 +181,41 @@ export const AuthProvider = ({ children }) => {
           error.graphQLErrors?.[0]?.message ||
           error.message ||
           "Registration failed",
+      };
+    }
+  };
+
+  const googleAuth = async (idToken) => {
+    try {
+      const { data } = await googleAuthMutation({
+        variables: {
+          input: { idToken },
+        },
+      });
+
+      if (data?.googleAuth?.accessToken) {
+        const token = data.googleAuth.accessToken;
+        localStorage.setItem("accessToken", token);
+        setAccessToken(token);
+
+        // Fetch user profile
+        const { data: userData } = await refetchMe();
+        setUser(userData.getMyProfile);
+
+        return { success: true };
+      }
+
+      return {
+        success: false,
+        error: "Google authentication failed - no access token received",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error.graphQLErrors?.[0]?.message ||
+          error.message ||
+          "Google authentication failed",
       };
     }
   };
@@ -308,6 +330,7 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user && !!accessToken,
     login,
     register,
+    googleAuth,
     logout,
     refreshToken,
     changePassword,
