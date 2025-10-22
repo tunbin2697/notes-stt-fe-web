@@ -17,11 +17,15 @@ export default function Recorder() {
   const [text, setText] = useState("");
   const [status, setStatus] = useState("Ready");
   const [error, setError] = useState("");
+  const [recordedAudio, setRecordedAudio] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const audioContextRef = useRef(null);
   const processorRef = useRef(null);
   const streamRef = useRef(null);
   const bufferRef = useRef([]);
+  const recordedChunksRef = useRef([]);
+  const audioPlayerRef = useRef(null);
 
   // Start recording
   const startRecording = async () => {
@@ -60,6 +64,9 @@ export default function Recorder() {
       processorRef.current.onaudioprocess = async (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
         bufferRef.current.push(...inputData);
+
+        // Store all recorded audio for playback
+        recordedChunksRef.current.push(...inputData);
 
         // Process when we have enough audio (~500ms)
         if (bufferRef.current.length >= CHUNK_SIZE) {
@@ -106,9 +113,74 @@ export default function Recorder() {
       streamRef.current = null;
     }
 
+    // Convert recorded audio to playable format
+    if (recordedChunksRef.current.length > 0) {
+      createAudioBlob();
+    }
+
     bufferRef.current = [];
     setListening(false);
     setStatus("Stopped");
+  };
+
+  // Create audio blob from recorded chunks for playback
+  const createAudioBlob = () => {
+    try {
+      const audioData = new Float32Array(recordedChunksRef.current);
+
+      // Convert Float32Array to WAV format
+      const wavBuffer = createWavFile(audioData, SAMPLE_RATE);
+      const blob = new Blob([wavBuffer], { type: "audio/wav" });
+      const url = URL.createObjectURL(blob);
+
+      setRecordedAudio(url);
+    } catch (err) {
+      console.error("Failed to create audio blob:", err);
+    }
+  };
+
+  // Create WAV file from Float32Array
+  const createWavFile = (audioData, sampleRate) => {
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const bytesPerSample = bitsPerSample / 8;
+    const blockAlign = numChannels * bytesPerSample;
+
+    const dataLength = audioData.length * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataLength);
+    const view = new DataView(buffer);
+
+    // Write WAV header
+    const writeString = (offset, string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    };
+
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + dataLength, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true); // fmt chunk size
+    view.setUint16(20, 1, true); // PCM format
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeString(36, "data");
+    view.setUint32(40, dataLength, true);
+
+    // Write audio data (convert float to 16-bit PCM)
+    let offset = 44;
+    for (let i = 0; i < audioData.length; i++) {
+      const sample = Math.max(-1, Math.min(1, audioData[i]));
+      const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      view.setInt16(offset, int16, true);
+      offset += 2;
+    }
+
+    return buffer;
   };
 
   // Process audio chunk through STT pipeline
@@ -184,6 +256,32 @@ export default function Recorder() {
     setError("");
   };
 
+  const clearAll = () => {
+    setText("");
+    setError("");
+    if (recordedAudio) {
+      URL.revokeObjectURL(recordedAudio);
+      setRecordedAudio(null);
+    }
+    recordedChunksRef.current = [];
+  };
+
+  const handlePlayPause = () => {
+    if (!audioPlayerRef.current) return;
+
+    if (isPlaying) {
+      audioPlayerRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioPlayerRef.current.play();
+      setIsPlaying(true);
+    }
+  };
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+  };
+
   return (
     <div className="w-full max-w-2xl mx-auto p-6 bg-white rounded-xl shadow-lg">
       {/* Status Bar */}
@@ -219,17 +317,38 @@ export default function Recorder() {
               : "bg-blue-600 hover:bg-blue-700 text-white"
           }`}
         >
-          {listening ? "⏸ Stop Recording" : "🎤 Start Recording"}
+          {listening ? "⏹️ Stop Recording" : "🎤 Start Recording"}
         </button>
 
         <button
-          onClick={clearText}
-          disabled={!text && !error}
+          onClick={clearAll}
+          disabled={!text && !error && !recordedAudio}
           className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          🗑 Clear
+          🗑️ Clear All
         </button>
       </div>
+
+      {/* Audio Playback */}
+      {recordedAudio && (
+        <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handlePlayPause}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition flex items-center gap-2"
+            >
+              {isPlaying ? "⏸️ Pause" : "▶️ Play Recording"}
+            </button>
+            <audio
+              ref={audioPlayerRef}
+              src={recordedAudio}
+              onEnded={handleAudioEnded}
+              className="flex-1"
+              controls
+            />
+          </div>
+        </div>
+      )}
 
       {/* Transcript Display */}
       <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 min-h-[200px]">
