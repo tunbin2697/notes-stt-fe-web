@@ -80,34 +80,34 @@ export default function Notes() {
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold text-gray-800">📝 My Notes</h1>
             <div className="flex items-center gap-4">
-              {/* User Avatar */}
-              {user?.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt={user.fullName || user.email}
-                  className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
-                  onError={(e) => {
-                    e.target.onerror = null;
-                    e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                      user.fullName || user.email || "User"
-                    )}&background=random`;
-                  }}
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold">
-                  {(user?.fullName || user?.email || "U")
-                    .charAt(0)
-                    .toUpperCase()}
-                </div>
-              )}
-              <span className="text-sm text-gray-600">
-                Hello, {user?.fullName || user?.email || "User"}
-              </span>
+              {/* User Profile Button */}
               <Link
                 to="/profile"
-                className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex items-center gap-2 px-3 py-2 text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                title="View Profile"
               >
-                Profile
+                {user?.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt={user.fullName || user.email}
+                    className="w-8 h-8 rounded-full object-cover border-2 border-gray-200"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                        user.fullName || user.email || "User"
+                      )}&background=random`;
+                    }}
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
+                    {(user?.fullName || user?.email || "U")
+                      .charAt(0)
+                      .toUpperCase()}
+                  </div>
+                )}
+                <span className="hidden sm:inline text-sm">
+                  {user?.fullName || user?.email || "User"}
+                </span>
               </Link>
               <button
                 onClick={logout}
@@ -158,9 +158,11 @@ export default function Notes() {
           />
           <button
             onClick={() => navigate("/notes/new")}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors whitespace-nowrap"
+            className="px-3 sm:px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors whitespace-nowrap"
+            title="Create new note"
           >
-            + New Note
+            <span className="hidden sm:inline">+ New Note</span>
+            <span className="sm:hidden text-xl">+</span>
           </button>
         </div>
 
