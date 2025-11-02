@@ -17,6 +17,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ["@apollo/client", "graphql", "date-fns"],
+    exclude: ["onnxruntime-web"],
     esbuildOptions: {
       define: {
         global: "globalThis",
@@ -34,4 +35,6 @@ export default defineConfig({
     port: 5175, // updated to match your working port
     https: false,
   },
+  // Ensure WASM files are treated as assets
+  assetsInclude: ["**/*.wasm"],
 });

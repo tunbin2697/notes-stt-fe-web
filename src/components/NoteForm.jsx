@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import STTInput from "./STTInput";
 
 // Function to generate default color based on type, priority, and status
 const getDefaultColor = (type, priority, status) => {
@@ -163,16 +164,13 @@ export default function NoteForm({ note, onSubmit, onCancel, loading }) {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Content *
+          Content * 🎤
         </label>
-        <textarea
-          name="content"
+        <STTInput
           value={formData.content}
           onChange={handleChange}
-          required
-          rows={4}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          placeholder="Enter note content"
+          placeholder="Type or use microphone to record your note..."
+          rows={6}
         />
       </div>
 
