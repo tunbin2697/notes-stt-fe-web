@@ -61,6 +61,22 @@ git reset --hard "origin/$BRANCH" 2>&1 | tee -a "$LOG_FILE"
 log "Cleaning untracked files"
 git clean -fdx 2>&1 | tee -a "$LOG_FILE"
 
+# Create/update .env file if it doesn't exist
+log "Checking for .env file"
+if [ ! -f .env ]; then
+    log ".env file not found, creating from template"
+    if [ -f /etc/notes-stt-fe-web/.env ]; then
+        cp /etc/notes-stt-fe-web/.env .env
+        log "✓ .env file created from /etc/notes-stt-fe-web/.env"
+        log "  Environment variables loaded: $(grep -c '^[^#]' .env) variables"
+    else
+        error ".env file not found. Please create /etc/notes-stt-fe-web/.env or add .env to repo root"
+        exit 1
+    fi
+else
+    log "✓ .env file already exists ($(grep -c '^[^#]' .env) variables loaded)"
+fi
+
 # CRITICAL: Restore execute permission immediately after git reset
 # git reset --hard replaces deploy.sh with the version from git, which may not have +x
 log "Restoring execute permission on deploy.sh after git reset..."
