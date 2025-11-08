@@ -10,7 +10,7 @@ const CORRECTION_ENDPOINT =
  * Features:
  * - Real-time microphone recording with voice activity detection
  * - Audio file upload for transcription
- * - Visual feedback (recording status, volume indicator)
+ * - Visual feedback (recording status)
  * - Automatic appending of transcripts to note content
  * - Integrates with existing textarea/input fields
  */
@@ -30,16 +30,8 @@ export default function STTInput({
   const [isInitialized, setIsInitialized] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [volumeThreshold, setVolumeThreshold] = useState(-50);
-  const [currentVolumeDb, setCurrentVolumeDb] = useState(-100);
-  const [previewingMic, setPreviewingMic] = useState(false);
   const [isCorrecting, setIsCorrecting] = useState(false);
   const [recentCorrection, setRecentCorrection] = useState(null);
-
-  // Refs for previewing microphone (used only for settings preview; separate from STT recording)
-  const previewStreamRef = useRef(null);
-  const previewAudioCtxRef = useRef(null);
-  const previewAnalyserRef = useRef(null);
-  const previewAnimationRef = useRef(null);
 
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -314,39 +306,6 @@ export default function STTInput({
   const handleVADStatus = useCallback((status) => {
     // status: { isSpeaking, volumeDb, duration }
     setIsSpeechDetected(!!status?.isSpeaking);
-    if (typeof status?.volumeDb === "number") {
-      setCurrentVolumeDb(status.volumeDb);
-    }
-  }, []);
-
-  const stopPreviewMic = useCallback(() => {
-    if (previewAnimationRef.current) {
-      cancelAnimationFrame(previewAnimationRef.current);
-      previewAnimationRef.current = null;
-    }
-
-    if (previewAnalyserRef.current) {
-      try {
-        previewAnalyserRef.current.disconnect();
-      } catch (e) {}
-      previewAnalyserRef.current = null;
-    }
-
-    if (previewAudioCtxRef.current) {
-      try {
-        previewAudioCtxRef.current.close();
-      } catch (e) {}
-      previewAudioCtxRef.current = null;
-    }
-
-    if (previewStreamRef.current) {
-      try {
-        previewStreamRef.current.getTracks().forEach((t) => t.stop());
-      } catch (e) {}
-      previewStreamRef.current = null;
-    }
-
-    setPreviewingMic(false);
   }, []);
 
   const handleStartRecording = useCallback(async () => {
@@ -365,11 +324,6 @@ export default function STTInput({
       sessionSegmentIdsRef.current = [];
       setIsRecording(true);
 
-      // Stop preview if active to avoid multiple mic streams
-      if (previewingMic) {
-        stopPreviewMic();
-      }
-
       // Start real-time STT with VAD using consolidated service
       const stopFn = STTCore.startRealTimeSTT(
         handleAudioChunk,
@@ -386,14 +340,7 @@ export default function STTInput({
       setError(err.message || "Failed to start recording");
       setIsRecording(false);
     }
-  }, [
-    isInitialized,
-    handleAudioChunk,
-    handleVADStatus,
-    previewingMic,
-    stopPreviewMic,
-    volumeThreshold,
-  ]);
+  }, [isInitialized, handleAudioChunk, handleVADStatus, volumeThreshold]);
 
   const handleStopRecording = useCallback(() => {
     if (stopRecordingRef.current) {
@@ -462,81 +409,11 @@ export default function STTInput({
     [onChange]
   );
 
-  // Meter range matching the slider (min -60 dB, max -20 dB)
-  const METER_MIN_DB = -60;
-  const METER_MAX_DB = -20;
-
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const computePercent = (db) => {
-    const clamped = clamp(db, METER_MIN_DB, METER_MAX_DB);
-    return ((clamped - METER_MIN_DB) / (METER_MAX_DB - METER_MIN_DB)) * 100;
-  };
-
-  const levelPercent = computePercent(currentVolumeDb);
-  const thresholdPercent = computePercent(volumeThreshold);
   const textareaHighlightClass = recentCorrection
     ? "ring-2 ring-purple-400 shadow-inner transition-shadow duration-300"
     : isCorrecting
     ? "ring-2 ring-blue-400 shadow-inner transition-shadow duration-300"
     : "";
-
-  // Start a lightweight mic preview that only updates the analyser and volume level
-  const startPreviewMic = useCallback(async () => {
-    if (previewingMic) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      previewStreamRef.current = stream;
-
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      const audioCtx = new AudioCtx();
-      previewAudioCtxRef.current = audioCtx;
-
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0.8;
-      source.connect(analyser);
-      previewAnalyserRef.current = analyser;
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      const tick = () => {
-        analyser.getByteTimeDomainData(dataArray);
-        // compute identical RMS->dB as STTCore
-        const rms = Math.sqrt(
-          dataArray.reduce((sum, val) => {
-            const normalized = (val - 128) / 128;
-            return sum + normalized * normalized;
-          }, 0) / dataArray.length
-        );
-        const db = rms > 0.001 ? 20 * Math.log10(rms) : -100;
-        setCurrentVolumeDb(db);
-        previewAnimationRef.current = requestAnimationFrame(tick);
-      };
-
-      setPreviewingMic(true);
-      tick();
-    } catch (err) {
-      console.error("Microphone preview failed:", err);
-      setPreviewingMic(false);
-      setCurrentVolumeDb(-100);
-      setError("Could not access microphone for preview");
-    }
-  }, [previewingMic]);
-
-  // Ensure preview is stopped on unmount
-  useEffect(() => {
-    return () => {
-      stopPreviewMic();
-    };
-  }, [stopPreviewMic]);
-
-  // Stop preview when settings popover is closed
-  useEffect(() => {
-    if (!showSettings && previewingMic) {
-      stopPreviewMic();
-    }
-  }, [showSettings, previewingMic, stopPreviewMic]);
 
   return (
     <div className="space-y-2">
@@ -621,74 +498,6 @@ export default function STTInput({
                     💡 Lower values (e.g., -60) detect quieter speech. Higher
                     values (e.g., -30) require louder speech.
                   </p>
-
-                  {/* Live volume meter with threshold marker */}
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
-                      <span>Level</span>
-                      <span className="font-semibold">
-                        {isRecording || previewingMic
-                          ? `${currentVolumeDb.toFixed(0)} dB`
-                          : "-- dB"}
-                      </span>
-                    </div>
-
-                    <div className="relative h-3 bg-gray-200 rounded-full overflow-hidden">
-                      {/* Filled level */}
-                      <div
-                        className={`absolute left-0 top-0 h-full rounded-full transition-all duration-150 ${
-                          isRecording || previewingMic
-                            ? currentVolumeDb >= volumeThreshold
-                              ? "bg-green-400"
-                              : "bg-blue-500"
-                            : "bg-gray-300"
-                        }`}
-                        style={{
-                          width: `${levelPercent}%`,
-                          opacity: isRecording || previewingMic ? 1 : 0.5,
-                        }}
-                      />
-
-                      {/* Threshold marker */}
-                      <div
-                        aria-hidden
-                        className="absolute top-0 h-full w-0.5 bg-yellow-400"
-                        style={{
-                          left: `${thresholdPercent}%`,
-                          transform: "translateX(-50%)",
-                        }}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
-                      <span>Min</span>
-                      <span className="text-gray-600">Threshold</span>
-                      <span>Max</span>
-                    </div>
-
-                    {/* Preview Mic Toggle */}
-                    <div className="mt-3 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (previewingMic) stopPreviewMic();
-                          else startPreviewMic();
-                        }}
-                        disabled={isRecording}
-                        className={`px-3 py-1 text-sm rounded-md shadow-sm transition-colors duration-150 ${
-                          previewingMic
-                            ? "bg-red-500 text-white hover:bg-red-600"
-                            : "bg-gray-100 text-gray-800 hover:bg-gray-200"
-                        }`}
-                      >
-                        {previewingMic ? "Stop Preview" : "Preview Mic"}
-                      </button>
-
-                      <div className="text-xs text-gray-500">
-                        {previewingMic ? "Live" : "Preview is off"}
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
