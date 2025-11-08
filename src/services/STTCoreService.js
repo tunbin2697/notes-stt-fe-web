@@ -44,11 +44,11 @@ const STATE = {
  */
 export async function initialize() {
   if (STATE.isInitialized) {
-    console.log("✅ STT already initialized");
+    // STT already initialized
     return;
   }
 
-  console.log("🔄 Loading STT model and configuration...");
+  // Initialization started (logs minimized for production)
 
   try {
     await loadConfiguration();
@@ -71,11 +71,7 @@ async function loadConfiguration() {
     throw new Error(`Failed to load config: ${response.statusText}`);
   }
   STATE.config = await response.json();
-  console.log("✅ Config loaded:", {
-    sampleRate: STATE.config.SAMPLE_RATE,
-    nMels: STATE.config.N_MELS,
-    vocabSize: STATE.config.VOCABULARY?.length,
-  });
+  console.info("✅ Config loaded");
 }
 
 /**
@@ -85,9 +81,7 @@ async function loadConfiguration() {
 async function loadONNXModel() {
   // Load your ONNX model file
   STATE.sttSession = await ort.InferenceSession.create(CONFIG.MODEL_PATH);
-  console.log("✅ ONNX Model loaded");
-  console.log(`   Inputs: ${STATE.sttSession.inputNames.join(", ")}`);
-  console.log(`   Outputs: ${STATE.sttSession.outputNames.join(", ")}`);
+  console.info("✅ ONNX Model loaded");
 }
 
 /**
@@ -95,7 +89,7 @@ async function loadONNXModel() {
  */
 function initializeAudioContext() {
   STATE.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  console.log(`✅ AudioContext ready (${STATE.audioContext.sampleRate}Hz)`);
+  console.info("✅ AudioContext ready");
 }
 
 /**
@@ -633,11 +627,7 @@ function decodeModelOutput(results) {
  * Log inference statistics
  */
 function logInferenceStats(inferenceTime, numFrames, transcript) {
-  console.log(
-    `⏱️ Inference: ${inferenceTime.toFixed(0)}ms | ` +
-      `Frames: ${numFrames} | ` +
-      `Output: ${transcript.length} chars`
-  );
+  // Inference statistics are intentionally suppressed in browser logs.
 }
 
 /**
@@ -816,7 +806,7 @@ async function setupAudioRecording(
   vadState.stream = stream;
 
   const audioTracks = stream.getAudioTracks();
-  console.log(`🎤 ${audioTracks[0]?.label || "Microphone"} connected`);
+  // Microphone connected (device details suppressed)
 
   vadState.mediaRecorder = createMediaRecorder(
     stream,
@@ -833,10 +823,7 @@ async function setupAudioRecording(
     maxChunkMs
   );
 
-  console.log(
-    `✅ Listening (threshold: ${volumeThresholdDb}dB, ` +
-      `chunks: ${minChunkMs}-${maxChunkMs}ms)`
-  );
+  // Listening started (details suppressed)
 }
 
 /**
@@ -1036,8 +1023,7 @@ function stopListening(vadState) {
   if (vadState.stream) {
     vadState.stream.getTracks().forEach((track) => track.stop());
   }
-
-  console.log("🛑 Listening stopped");
+  // Listening stopped
 }
 
 // ============================================
@@ -1073,11 +1059,7 @@ export async function processAudioFile(
     return;
   }
 
-  console.log(
-    `📁 Processing file: ${file.name} (${(file.size / 1024 / 1024).toFixed(
-      2
-    )} MB)`
-  );
+  // Processing file (details suppressed)
 
   // UI UPDATE PLACEHOLDER
   if (onProgress) onProgress(0);
@@ -1093,11 +1075,7 @@ export async function processAudioFile(
       throw new Error("Failed to decode audio file");
     }
 
-    console.log(
-      `✅ Audio decoded: ${audioData.length} samples, ${(
-        audioData.length / (STATE.config.SAMPLE_RATE || 16000)
-      ).toFixed(2)}s`
-    );
+    // Audio decoded (details suppressed)
 
     if (onProgress) onProgress(60);
 
@@ -1107,10 +1085,9 @@ export async function processAudioFile(
 
     // UI UPDATE PLACEHOLDER
     if (transcript && transcript.trim()) {
-      console.log(`✅ File transcription complete: "${transcript}"`);
+      // File transcription complete (transcript not logged for privacy)
       if (onComplete) onComplete(transcript);
     } else {
-      console.warn("⚠️ No speech detected in audio file");
       if (onComplete) onComplete("");
     }
   } catch (error) {
