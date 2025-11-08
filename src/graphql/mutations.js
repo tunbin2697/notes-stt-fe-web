@@ -176,3 +176,13 @@ export const UNPIN_NOTE = gql`
     }
   }
 `;
+
+// Text correction mutation
+export const CORRECT_TEXT = gql`
+  mutation CorrectText($text: String!) {
+    correctText(input: { text: $text }) {
+      corrected
+      computeTimeSec
+    }
+  }
+`;

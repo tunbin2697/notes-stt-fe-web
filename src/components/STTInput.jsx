@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useMutation } from "@apollo/client/react";
+import { CORRECT_TEXT } from "@/graphql/mutations";
 import STTCore from "@/services/STTCoreService.js";
 
 const STREAM_OVERLAP_MS = 200;
@@ -25,9 +27,6 @@ function stripOverlappingPrefix(existing, addition) {
 
   return addition;
 }
-
-const CORRECTION_ENDPOINT =
-  import.meta.env.VITE_CORRECTION_URL?.trim() || "/correct";
 
 /**
  * STTInput - Speech-to-Text Input Component
@@ -57,6 +56,9 @@ export default function STTInput({
   const [volumeThreshold, setVolumeThreshold] = useState(-50);
   const [isCorrecting, setIsCorrecting] = useState(false);
   const [recentCorrection, setRecentCorrection] = useState(null);
+  const [correctionWarning, setCorrectionWarning] = useState(null);
+
+  const [correctTextMutation] = useMutation(CORRECT_TEXT);
 
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -66,7 +68,6 @@ export default function STTInput({
   const segmentsRef = useRef([]);
   const segmentIdRef = useRef(0);
   const sessionSegmentIdsRef = useRef([]);
-  const correctionControllerRef = useRef(null);
   const correctionHighlightTimeoutRef = useRef(null);
 
   // Update ref when value changes
@@ -123,10 +124,7 @@ export default function STTInput({
         stopRecordingRef.current();
         stopRecordingRef.current = null;
       }
-      if (correctionControllerRef.current) {
-        correctionControllerRef.current.abort();
-        correctionControllerRef.current = null;
-      }
+      setIsInitialized(false);
       if (correctionHighlightTimeoutRef.current) {
         clearTimeout(correctionHighlightTimeoutRef.current);
         correctionHighlightTimeoutRef.current = null;
@@ -134,46 +132,36 @@ export default function STTInput({
     };
   }, []);
 
-  const requestCorrection = useCallback(async (text) => {
-    const cleaned = text?.trim();
-    if (!cleaned) return text;
+  const requestCorrection = useCallback(
+    async (text) => {
+      const cleaned = text?.trim();
+      if (!cleaned) return cleaned;
 
-    try {
-      if (correctionControllerRef.current) {
-        correctionControllerRef.current.abort();
-      }
+      try {
+        const { data } = await correctTextMutation({
+          variables: { text: cleaned },
+          context: {
+            timeout: 15000, // 15 second timeout for correction
+          },
+        });
 
-      const controller = new AbortController();
-      correctionControllerRef.current = controller;
-
-      const response = await fetch(CORRECTION_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: cleaned }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Correction service responded with ${response.status}`);
-      }
-
-      const data = await response.json();
-      const corrected = data?.corrected;
-      return typeof corrected === "string" && corrected.trim()
-        ? corrected.trim()
-        : cleaned;
-    } catch (err) {
-      if (err.name !== "AbortError") {
+        const corrected = data?.correctText?.corrected;
+        return typeof corrected === "string" && corrected.trim()
+          ? corrected.trim()
+          : cleaned;
+      } catch (err) {
         console.error("Correction request failed:", err);
-        setError(
-          "Correction service unavailable. Showing raw transcript instead."
+        // Don't set main error, just show warning
+        setCorrectionWarning(
+          "Text correction unavailable. Showing original transcript."
         );
+        // Clear warning after 5 seconds
+        setTimeout(() => setCorrectionWarning(null), 5000);
+        return cleaned;
       }
-      return cleaned;
-    } finally {
-      correctionControllerRef.current = null;
-    }
-  }, []);
+    },
+    [correctTextMutation]
+  );
 
   const applyCorrectionToSegments = useCallback(
     (segmentIds, correctedText) => {
@@ -407,14 +395,45 @@ export default function STTInput({
         setUploadProgress(Math.round(percent));
       };
 
-      const onComplete = (transcript) => {
+      const onComplete = async (transcript) => {
         if (transcript?.trim()) {
-          // Use ref to get the latest value at completion time
-          const currentValue = valueRef.current;
-          const newContent = currentValue
-            ? `${currentValue}\n${transcript}`.trim()
-            : transcript;
-          onChange({ target: { name: "content", value: newContent } });
+          setUploadProgress(100);
+
+          // Apply text correction to uploaded file transcript
+          setIsCorrecting(true);
+          try {
+            const correctedText = await requestCorrection(transcript);
+            const finalText = correctedText || transcript;
+
+            // Use ref to get the latest value at completion time
+            const currentValue = valueRef.current;
+            const newContent = currentValue
+              ? `${currentValue}\n${finalText}`.trim()
+              : finalText;
+            onChange({ target: { name: "content", value: newContent } });
+
+            // Show correction indicator if text was corrected
+            if (correctedText && correctedText !== transcript) {
+              setRecentCorrection({ text: correctedText, ts: Date.now() });
+              if (correctionHighlightTimeoutRef.current) {
+                clearTimeout(correctionHighlightTimeoutRef.current);
+              }
+              correctionHighlightTimeoutRef.current = setTimeout(() => {
+                setRecentCorrection(null);
+                correctionHighlightTimeoutRef.current = null;
+              }, 3500);
+            }
+          } catch (err) {
+            console.error("File correction failed:", err);
+            // Fall back to original transcript if correction fails
+            const currentValue = valueRef.current;
+            const newContent = currentValue
+              ? `${currentValue}\n${transcript}`.trim()
+              : transcript;
+            onChange({ target: { name: "content", value: newContent } });
+          } finally {
+            setIsCorrecting(false);
+          }
         }
         setIsUploading(false);
         setUploadProgress(0);
@@ -436,7 +455,7 @@ export default function STTInput({
       // Reset file input
       event.target.value = "";
     },
-    [isInitialized, onChange]
+    [isInitialized, onChange, requestCorrection]
   );
 
   const handleTextChange = useCallback(
@@ -623,7 +642,8 @@ export default function STTInput({
         error ||
         isProcessing ||
         isCorrecting ||
-        recentCorrection) && (
+        recentCorrection ||
+        correctionWarning) && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {isRecording && (
             <div
@@ -747,6 +767,12 @@ export default function STTInput({
             </div>
           )}
 
+          {correctionWarning && (
+            <div className="flex-1 bg-yellow-100 text-yellow-800 px-3 py-1.5 rounded-lg font-medium border border-yellow-200">
+              ℹ️ {correctionWarning}
+            </div>
+          )}
+
           {recentCorrection && (
             <div className="flex-1 bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200 shadow-sm">
               <span className="font-semibold mr-1">✨ Polished:</span>
@@ -765,7 +791,8 @@ export default function STTInput({
         !isUploading &&
         !error &&
         !isCorrecting &&
-        !recentCorrection && (
+        !recentCorrection &&
+        !correctionWarning && (
           <div className="text-xs text-gray-500">
             💡 Click <strong className="text-blue-600">microphone</strong> for
             real-time transcription or{" "}
