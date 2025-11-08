@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import STTCore from "@/services/STTCoreService.js";
 
+const CORRECTION_ENDPOINT =
+  import.meta.env.VITE_CORRECTION_URL?.trim() || "/correct";
+
 /**
  * STTInput - Speech-to-Text Input Component
  *
@@ -29,6 +32,8 @@ export default function STTInput({
   const [volumeThreshold, setVolumeThreshold] = useState(-50);
   const [currentVolumeDb, setCurrentVolumeDb] = useState(-100);
   const [previewingMic, setPreviewingMic] = useState(false);
+  const [isCorrecting, setIsCorrecting] = useState(false);
+  const [recentCorrection, setRecentCorrection] = useState(null);
 
   // Refs for previewing microphone (used only for settings preview; separate from STT recording)
   const previewStreamRef = useRef(null);
@@ -41,6 +46,11 @@ export default function STTInput({
   const stopRecordingRef = useRef(null);
   const valueRef = useRef(value); // Keep a ref to always have the latest value
   const settingsRef = useRef(null);
+  const segmentsRef = useRef([]);
+  const segmentIdRef = useRef(0);
+  const sessionSegmentIdsRef = useRef([]);
+  const correctionControllerRef = useRef(null);
+  const correctionHighlightTimeoutRef = useRef(null);
 
   // Update ref when value changes
   useEffect(() => {
@@ -96,23 +106,200 @@ export default function STTInput({
         stopRecordingRef.current();
         stopRecordingRef.current = null;
       }
+      if (correctionControllerRef.current) {
+        correctionControllerRef.current.abort();
+        correctionControllerRef.current = null;
+      }
+      if (correctionHighlightTimeoutRef.current) {
+        clearTimeout(correctionHighlightTimeoutRef.current);
+        correctionHighlightTimeoutRef.current = null;
+      }
     };
   }, []);
 
-  // Memoized callbacks to prevent recreating on every render
+  const requestCorrection = useCallback(async (text) => {
+    const cleaned = text?.trim();
+    if (!cleaned) return text;
+
+    try {
+      if (correctionControllerRef.current) {
+        correctionControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      correctionControllerRef.current = controller;
+
+      const response = await fetch(CORRECTION_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: cleaned }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Correction service responded with ${response.status}`);
+      }
+
+      const data = await response.json();
+      const corrected = data?.corrected;
+      return typeof corrected === "string" && corrected.trim()
+        ? corrected.trim()
+        : cleaned;
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        console.error("Correction request failed:", err);
+        setError(
+          "Correction service unavailable. Showing raw transcript instead."
+        );
+      }
+      return cleaned;
+    } finally {
+      correctionControllerRef.current = null;
+    }
+  }, []);
+
+  const applyCorrectionToSegments = useCallback(
+    (segmentIds, correctedText) => {
+      if (!segmentIds?.length || !correctedText) return;
+
+      const currentSegments = segmentsRef.current;
+      if (!currentSegments.length) return;
+
+      const indexes = [];
+      currentSegments.forEach((segment, index) => {
+        if (segmentIds.includes(segment.id)) {
+          indexes.push(index);
+        }
+      });
+
+      if (!indexes.length) return;
+
+      const firstIndex = Math.min(...indexes);
+      const count = indexes.length;
+      const windowSegments = currentSegments.slice(
+        firstIndex,
+        firstIndex + count
+      );
+      const originalCombinedText = windowSegments
+        .map((segment) => segment.text)
+        .join("");
+
+      const currentValue = valueRef.current || "";
+      const matchIndex = currentValue.lastIndexOf(originalCombinedText);
+      if (matchIndex === -1) {
+        return;
+      }
+
+      const before = currentValue.slice(0, matchIndex);
+      const after = currentValue.slice(
+        matchIndex + originalCombinedText.length
+      );
+
+      let leadingWhitespace =
+        windowSegments[0]?.text.match(/^[\s\r\n\t]*/)?.[0] ?? "";
+      let trailingWhitespace =
+        windowSegments[windowSegments.length - 1]?.text.match(
+          /[\s\r\n\t]*$/
+        )?.[0] ?? "";
+
+      if (!leadingWhitespace && before && !/\s$/.test(before)) {
+        leadingWhitespace = " ";
+      }
+
+      if (!trailingWhitespace && after && !/^\s/.test(after)) {
+        trailingWhitespace = " ";
+      }
+
+      const trimmedCorrection = correctedText.trim();
+      const correctedSegmentText = `${leadingWhitespace}${trimmedCorrection}${trailingWhitespace}`;
+      const updatedValue = `${before}${correctedSegmentText}${after}`;
+
+      valueRef.current = updatedValue;
+      onChange({ target: { name: "content", value: updatedValue } });
+
+      const updatedSegments = [...currentSegments];
+      updatedSegments.splice(firstIndex, count, {
+        id: segmentIdRef.current++,
+        text: correctedSegmentText,
+        status: "corrected",
+      });
+      segmentsRef.current = updatedSegments;
+
+      if (correctionHighlightTimeoutRef.current) {
+        clearTimeout(correctionHighlightTimeoutRef.current);
+        correctionHighlightTimeoutRef.current = null;
+      }
+
+      setRecentCorrection({ text: trimmedCorrection, ts: Date.now() });
+      correctionHighlightTimeoutRef.current = setTimeout(() => {
+        setRecentCorrection(null);
+        correctionHighlightTimeoutRef.current = null;
+      }, 3500);
+    },
+    [onChange]
+  );
+
+  const runSessionCorrection = useCallback(async () => {
+    const segmentIds = sessionSegmentIdsRef.current;
+    if (!segmentIds.length) {
+      return;
+    }
+
+    const sessionSegments = segmentsRef.current.filter((segment) =>
+      segmentIds.includes(segment.id)
+    );
+
+    if (!sessionSegments.length) {
+      sessionSegmentIdsRef.current = [];
+      return;
+    }
+
+    const combinedText = sessionSegments
+      .map((segment) => segment.text)
+      .join("");
+    if (!combinedText.trim()) {
+      sessionSegmentIdsRef.current = [];
+      return;
+    }
+
+    setIsCorrecting(true);
+    try {
+      const corrected = await requestCorrection(combinedText);
+      if (corrected && corrected.trim()) {
+        applyCorrectionToSegments(segmentIds.slice(), corrected);
+        setError(null);
+      }
+    } catch (err) {
+      console.error("Final correction failed:", err);
+    } finally {
+      sessionSegmentIdsRef.current = [];
+      setIsCorrecting(false);
+    }
+  }, [applyCorrectionToSegments, requestCorrection]);
+
   const handleAudioChunk = useCallback(
     async (audioBlob) => {
       try {
         setIsProcessing(true);
         const transcript = await STTCore.inferSTT(audioBlob);
+        const cleanedTranscript = transcript?.trim();
 
-        if (transcript?.trim()) {
-          // Use ref to get the latest value, not the closure value
-          // This ensures we append to the most recent content
-          const currentValue = valueRef.current;
-          const newContent = currentValue
-            ? `${currentValue} ${transcript}`.trim()
-            : transcript;
+        if (cleanedTranscript) {
+          const currentValue = valueRef.current || "";
+          const needsSpace = currentValue.length && !/\s$/.test(currentValue);
+          const segmentId = segmentIdRef.current++;
+          const appendedText = `${needsSpace ? " " : ""}${cleanedTranscript}`;
+          const newContent = currentValue + appendedText;
+
+          segmentsRef.current.push({
+            id: segmentId,
+            text: appendedText,
+            status: "raw",
+          });
+
+          sessionSegmentIdsRef.current.push(segmentId);
+
+          valueRef.current = newContent;
           onChange({ target: { name: "content", value: newContent } });
         }
       } catch (err) {
@@ -132,6 +319,36 @@ export default function STTInput({
     }
   }, []);
 
+  const stopPreviewMic = useCallback(() => {
+    if (previewAnimationRef.current) {
+      cancelAnimationFrame(previewAnimationRef.current);
+      previewAnimationRef.current = null;
+    }
+
+    if (previewAnalyserRef.current) {
+      try {
+        previewAnalyserRef.current.disconnect();
+      } catch (e) {}
+      previewAnalyserRef.current = null;
+    }
+
+    if (previewAudioCtxRef.current) {
+      try {
+        previewAudioCtxRef.current.close();
+      } catch (e) {}
+      previewAudioCtxRef.current = null;
+    }
+
+    if (previewStreamRef.current) {
+      try {
+        previewStreamRef.current.getTracks().forEach((t) => t.stop());
+      } catch (e) {}
+      previewStreamRef.current = null;
+    }
+
+    setPreviewingMic(false);
+  }, []);
+
   const handleStartRecording = useCallback(async () => {
     if (!isInitialized) {
       setError("STT service not ready. Please wait...");
@@ -140,6 +357,12 @@ export default function STTInput({
 
     try {
       setError(null);
+      if (correctionHighlightTimeoutRef.current) {
+        clearTimeout(correctionHighlightTimeoutRef.current);
+        correctionHighlightTimeoutRef.current = null;
+      }
+      setRecentCorrection(null);
+      sessionSegmentIdsRef.current = [];
       setIsRecording(true);
 
       // Stop preview if active to avoid multiple mic streams
@@ -163,7 +386,14 @@ export default function STTInput({
       setError(err.message || "Failed to start recording");
       setIsRecording(false);
     }
-  }, [isInitialized, handleAudioChunk, handleVADStatus]);
+  }, [
+    isInitialized,
+    handleAudioChunk,
+    handleVADStatus,
+    previewingMic,
+    stopPreviewMic,
+    volumeThreshold,
+  ]);
 
   const handleStopRecording = useCallback(() => {
     if (stopRecordingRef.current) {
@@ -172,7 +402,8 @@ export default function STTInput({
     }
     setIsRecording(false);
     setIsSpeechDetected(false);
-  }, []);
+    runSessionCorrection();
+  }, [runSessionCorrection]);
 
   const handleFileUpload = useCallback(
     async (event) => {
@@ -243,6 +474,11 @@ export default function STTInput({
 
   const levelPercent = computePercent(currentVolumeDb);
   const thresholdPercent = computePercent(volumeThreshold);
+  const textareaHighlightClass = recentCorrection
+    ? "ring-2 ring-purple-400 shadow-inner transition-shadow duration-300"
+    : isCorrecting
+    ? "ring-2 ring-blue-400 shadow-inner transition-shadow duration-300"
+    : "";
 
   // Start a lightweight mic preview that only updates the analyser and volume level
   const startPreviewMic = useCallback(async () => {
@@ -288,36 +524,6 @@ export default function STTInput({
     }
   }, [previewingMic]);
 
-  const stopPreviewMic = useCallback(() => {
-    if (previewAnimationRef.current) {
-      cancelAnimationFrame(previewAnimationRef.current);
-      previewAnimationRef.current = null;
-    }
-
-    if (previewAnalyserRef.current) {
-      try {
-        previewAnalyserRef.current.disconnect();
-      } catch (e) {}
-      previewAnalyserRef.current = null;
-    }
-
-    if (previewAudioCtxRef.current) {
-      try {
-        previewAudioCtxRef.current.close();
-      } catch (e) {}
-      previewAudioCtxRef.current = null;
-    }
-
-    if (previewStreamRef.current) {
-      try {
-        previewStreamRef.current.getTracks().forEach((t) => t.stop());
-      } catch (e) {}
-      previewStreamRef.current = null;
-    }
-
-    setPreviewingMic(false);
-  }, []);
-
   // Ensure preview is stopped on unmount
   useEffect(() => {
     return () => {
@@ -344,7 +550,7 @@ export default function STTInput({
           rows={rows}
           placeholder={placeholder}
           disabled={isRecording || isUploading}
-          className={`w-full px-3 py-2 pr-24 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 ${className}`}
+          className={`w-full px-3 py-2 pr-24 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-shadow ${textareaHighlightClass} ${className}`}
         />
 
         {/* STT Control Buttons (floating inside textarea) */}
@@ -566,8 +772,13 @@ export default function STTInput({
       </div>
 
       {/* Status Indicators */}
-      {(isRecording || isUploading || error) && (
-        <div className="flex items-center gap-2 text-sm">
+      {(isRecording ||
+        isUploading ||
+        error ||
+        isProcessing ||
+        isCorrecting ||
+        recentCorrection) && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           {isRecording && (
             <div
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${
@@ -593,6 +804,58 @@ export default function STTInput({
                   ? "🎤 Listening..."
                   : "🔇 Waiting for speech..."}
               </span>
+            </div>
+          )}
+
+          {isProcessing && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700">
+              <svg
+                className="animate-spin h-4 w-4"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              <span className="font-medium">Transcribing...</span>
+            </div>
+          )}
+
+          {isCorrecting && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700">
+              <svg
+                className="animate-spin h-4 w-4"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              <span className="font-medium">Cleaning up transcript...</span>
             </div>
           )}
 
@@ -637,17 +900,34 @@ export default function STTInput({
               ⚠️ {error}
             </div>
           )}
+
+          {recentCorrection && (
+            <div className="flex-1 bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200 shadow-sm">
+              <span className="font-semibold mr-1">✨ Polished:</span>
+              <span>
+                {recentCorrection.text.length > 120
+                  ? `${recentCorrection.text.slice(0, 117)}...`
+                  : recentCorrection.text}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
       {/* Instructions */}
-      {!isRecording && !isUploading && !error && (
-        <div className="text-xs text-gray-500">
-          💡 Click <strong className="text-blue-600">microphone</strong> for
-          real-time transcription or{" "}
-          <strong className="text-purple-600">upload</strong> an audio file
-        </div>
-      )}
+      {!isRecording &&
+        !isUploading &&
+        !error &&
+        !isCorrecting &&
+        !recentCorrection && (
+          <div className="text-xs text-gray-500">
+            💡 Click <strong className="text-blue-600">microphone</strong> for
+            real-time transcription or{" "}
+            <strong className="text-purple-600">upload</strong> an audio file.
+            When you stop recording we send the full take for cleanup—watch for
+            the purple glow when the polished version lands.
+          </div>
+        )}
     </div>
   );
 }

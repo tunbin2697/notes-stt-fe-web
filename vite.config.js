@@ -34,6 +34,13 @@ export default defineConfig({
     host: false, // allows access from local network
     port: 5175, // updated to match your working port
     https: false,
+    proxy: {
+      "/correct": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   // Ensure WASM files are treated as assets
   assetsInclude: ["**/*.wasm"],
