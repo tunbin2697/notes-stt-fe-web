@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { isValidEmail, validatePassword } from "@/utils/helpers";
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, googleAuth } = useAuth();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [infoMessage, setInfoMessage] = useState("");
   const googleButtonRef = useRef(null);
 
   // Initialize Google One Tap
@@ -37,6 +39,16 @@ export default function Login() {
       window.google.accounts.id.prompt();
     }
   }, []);
+
+  useEffect(() => {
+    const messageFromState = location.state?.message;
+
+    if (messageFromState) {
+      setInfoMessage(messageFromState);
+      // Clear the navigation state after consuming the message to avoid repeated banners
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.pathname, location.state, navigate]);
 
   const handleGoogleResponse = async (response) => {
     setLoading(true);
@@ -160,6 +172,12 @@ export default function Login() {
               Sign in to your account
             </p>
           </div>
+
+          {infoMessage && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-xs sm:text-sm">
+              {infoMessage}
+            </div>
+          )}
 
           {errors.submit && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs sm:text-sm">

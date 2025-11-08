@@ -14,6 +14,11 @@ const httpLink = new HttpLink({
   credentials: "include", // Important for cookies (refresh token)
 });
 
+// Default request timeout (ms) for refresh and GraphQL operations
+export const REQUEST_TIMEOUT_MS = Number(
+  import.meta.env.VITE_REQUEST_TIMEOUT_MS || 10000
+);
+
 // Track refresh attempts per-request using operation context to prevent infinite loops
 let sharedRefreshPromise = null;
 
@@ -36,8 +41,11 @@ const getSharedRefreshToken = () => {
   return sharedRefreshPromise;
 };
 
-// Function to refresh access token
-const refreshAccessToken = async () => {
+// Function to refresh access token with timeout using AbortController
+export const refreshAccessToken = async () => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
     const response = await fetch(
       import.meta.env.VITE_GRAPHQL_ENDPOINT ||
@@ -51,8 +59,11 @@ const refreshAccessToken = async () => {
         body: JSON.stringify({
           query: `mutation { refresh { accessToken } }`,
         }),
+        signal: controller.signal,
       }
     );
+
+    clearTimeout(timeout);
 
     const result = await response.json();
 
@@ -63,9 +74,15 @@ const refreshAccessToken = async () => {
 
     throw new Error("Failed to refresh token");
   } catch (error) {
+    if (error.name === "AbortError") {
+      console.error("Token refresh aborted due to timeout");
+      throw new Error("Token refresh timed out");
+    }
     console.error("Token refresh failed:", error);
     // Do NOT redirect here; let the caller decide after retries
     throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 };
 
@@ -83,6 +100,45 @@ const authLink = new ApolloLink((operation, forward) => {
   }
 
   return forward(operation);
+});
+
+// Timeout link - fails the operation if it doesn't complete within the configured timeout
+const timeoutLink = new ApolloLink((operation, forward) => {
+  return new Observable((observer) => {
+    const timeoutMs = operation.getContext()?.timeout ?? REQUEST_TIMEOUT_MS;
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      observer.error(new Error(`Request timed out after ${timeoutMs} ms`));
+    }, timeoutMs);
+
+    const subscription = forward(operation).subscribe({
+      next: (result) => {
+        if (!timedOut) {
+          clearTimeout(timer);
+          observer.next(result);
+        }
+      },
+      error: (err) => {
+        if (!timedOut) {
+          clearTimeout(timer);
+          observer.error(err);
+        }
+      },
+      complete: () => {
+        if (!timedOut) {
+          clearTimeout(timer);
+          observer.complete();
+        }
+      },
+    });
+
+    return () => {
+      clearTimeout(timer);
+      if (subscription) subscription.unsubscribe();
+    };
+  });
 });
 
 // Custom link to intercept and handle auth errors from response
@@ -205,7 +261,11 @@ const authRefreshLink = new ApolloLink((operation, forward) => {
 
 // Create Apollo Client
 const client = new ApolloClient({
-  link: concat(authLink, concat(authRefreshLink, httpLink)),
+  // link order: authLink -> authRefreshLink -> timeoutLink -> httpLink
+  link: concat(
+    authLink,
+    concat(authRefreshLink, concat(timeoutLink, httpLink))
+  ),
   cache: new InMemoryCache({
     typePolicies: {
       Query: {
@@ -229,14 +289,14 @@ const client = new ApolloClient({
   defaultOptions: {
     watchQuery: {
       fetchPolicy: "cache-and-network",
-      errorPolicy: "all",
+      errorPolicy: "none",
     },
     query: {
       fetchPolicy: "cache-first",
-      errorPolicy: "all",
+      errorPolicy: "none",
     },
     mutate: {
-      errorPolicy: "all",
+      errorPolicy: "none",
     },
   },
 });
