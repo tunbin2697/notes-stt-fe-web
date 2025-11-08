@@ -31,6 +31,7 @@ const STATE = {
   audioContext: null,
   config: {},
   isInitialized: false,
+  streamingTail: null,
 };
 
 // ============================================
@@ -98,6 +99,13 @@ function initializeAudioContext() {
  */
 export function isInitialized() {
   return STATE.isInitialized;
+}
+
+/**
+ * Reset streaming-specific state such as overlap buffers
+ */
+export function resetStreamingState() {
+  STATE.streamingTail = null;
 }
 
 // ============================================
@@ -541,9 +549,9 @@ function resampleAudio(audioData, sourceSR, targetSR) {
  * @param {Blob} audioBlob - Recorded audio chunk
  * @returns {Promise<string | null>} Transcribed text
  */
-export async function inferSTT(audioBlob) {
+export async function inferSTT(audioBlob, options = {}) {
   try {
-    const audioData = await prepareAudioData(audioBlob);
+    const audioData = await prepareAudioData(audioBlob, options);
     if (!audioData) return null;
 
     const features = extractFeatures(audioData);
@@ -560,7 +568,7 @@ export async function inferSTT(audioBlob) {
 /**
  * Prepare audio data from blob
  */
-async function prepareAudioData(audioBlob) {
+async function prepareAudioData(audioBlob, options = {}) {
   const arrayBuffer = await audioBlob.arrayBuffer();
   const audioData = await decodeAndResampleAudio(arrayBuffer);
 
@@ -569,7 +577,7 @@ async function prepareAudioData(audioBlob) {
     return null;
   }
 
-  return audioData;
+  return applyStreamingOverlap(audioData, options.overlapMs);
 }
 
 /**
@@ -577,6 +585,34 @@ async function prepareAudioData(audioBlob) {
  */
 function extractFeatures(audioData) {
   return computeLogMelFeaturesJS(audioData);
+}
+
+function applyStreamingOverlap(audioData, overlapMs) {
+  if (!overlapMs || overlapMs <= 0) {
+    STATE.streamingTail = null;
+    return audioData;
+  }
+
+  const sampleRate = STATE.config.SAMPLE_RATE || 16000;
+  const desiredSamples = Math.max(
+    1,
+    Math.round((overlapMs / 1000) * sampleRate)
+  );
+
+  const previousTail = STATE.streamingTail;
+  let combined = audioData;
+
+  if (previousTail && previousTail.length) {
+    combined = new Float32Array(previousTail.length + audioData.length);
+    combined.set(previousTail, 0);
+    combined.set(audioData, previousTail.length);
+  }
+
+  const tailLength = Math.min(desiredSamples, combined.length);
+  STATE.streamingTail =
+    tailLength > 0 ? combined.slice(combined.length - tailLength) : null;
+
+  return combined;
 }
 
 /**
@@ -1152,6 +1188,7 @@ export default {
   initialize,
   isInitialized,
   inferSTT,
+  resetStreamingState,
   startRealTimeSTT,
   processAudioFile,
   transcribeAudioFile,

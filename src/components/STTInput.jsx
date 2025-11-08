@@ -1,6 +1,31 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import STTCore from "@/services/STTCoreService.js";
 
+const STREAM_OVERLAP_MS = 200;
+
+function stripOverlappingPrefix(existing, addition) {
+  if (!existing) {
+    return addition;
+  }
+
+  const normalizedExisting = existing.toLowerCase();
+  const normalizedAddition = addition.toLowerCase();
+  const maxOverlap = Math.min(60, addition.length, existing.length);
+
+  for (let overlap = maxOverlap; overlap > 0; overlap--) {
+    const existingSuffix = normalizedExisting.slice(
+      normalizedExisting.length - overlap
+    );
+    const additionPrefix = normalizedAddition.slice(0, overlap);
+
+    if (existingSuffix === additionPrefix) {
+      return addition.slice(overlap).replace(/^\s+/, "");
+    }
+  }
+
+  return addition;
+}
+
 const CORRECTION_ENDPOINT =
   import.meta.env.VITE_CORRECTION_URL?.trim() || "/correct";
 
@@ -273,14 +298,24 @@ export default function STTInput({
     async (audioBlob) => {
       try {
         setIsProcessing(true);
-        const transcript = await STTCore.inferSTT(audioBlob);
+        const transcript = await STTCore.inferSTT(audioBlob, {
+          overlapMs: STREAM_OVERLAP_MS,
+        });
         const cleanedTranscript = transcript?.trim();
 
         if (cleanedTranscript) {
           const currentValue = valueRef.current || "";
+          const dedupedTranscript = stripOverlappingPrefix(
+            currentValue,
+            cleanedTranscript
+          );
+          if (!dedupedTranscript) {
+            return;
+          }
+
           const needsSpace = currentValue.length && !/\s$/.test(currentValue);
           const segmentId = segmentIdRef.current++;
-          const appendedText = `${needsSpace ? " " : ""}${cleanedTranscript}`;
+          const appendedText = `${needsSpace ? " " : ""}${dedupedTranscript}`;
           const newContent = currentValue + appendedText;
 
           segmentsRef.current.push({
@@ -323,6 +358,8 @@ export default function STTInput({
       setRecentCorrection(null);
       sessionSegmentIdsRef.current = [];
       setIsRecording(true);
+
+      STTCore.resetStreamingState();
 
       // Start real-time STT with VAD using consolidated service
       const stopFn = STTCore.startRealTimeSTT(
