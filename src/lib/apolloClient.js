@@ -14,8 +14,27 @@ const httpLink = new HttpLink({
   credentials: "include", // Important for cookies (refresh token)
 });
 
-// Track refresh attempts per request to prevent infinite loops
-const refreshAttempts = new Map();
+// Track refresh attempts per-request using operation context to prevent infinite loops
+let sharedRefreshPromise = null;
+
+// Get a shared refresh promise so multiple concurrent UNAUTHORIZED errors
+// reuse the same network call. Includes one internal retry.
+const getSharedRefreshToken = () => {
+  if (!sharedRefreshPromise) {
+    sharedRefreshPromise = (async () => {
+      try {
+        return await refreshAccessToken();
+      } catch (e1) {
+        console.warn("Refresh failed (first attempt), retrying once...");
+        return await refreshAccessToken();
+      }
+    })().finally(() => {
+      // Clear the shared promise after it settles so future refreshes can occur
+      sharedRefreshPromise = null;
+    });
+  }
+  return sharedRefreshPromise;
+};
 
 // Function to refresh access token
 const refreshAccessToken = async () => {
@@ -45,9 +64,7 @@ const refreshAccessToken = async () => {
     throw new Error("Failed to refresh token");
   } catch (error) {
     console.error("Token refresh failed:", error);
-    // Clear tokens and redirect to login
-    localStorage.removeItem("accessToken");
-    window.location.href = "/login";
+    // Do NOT redirect here; let the caller decide after retries
     throw error;
   }
 };
@@ -102,53 +119,58 @@ const authRefreshLink = new ApolloLink((operation, forward) => {
                   return;
                 }
 
-                // Get operation identifier for tracking attempts
-                const operationId = operation.operationName || "unknown";
-                const attempts = refreshAttempts.get(operationId) || 0;
+                // Use operation context to count attempts per request
+                const ctx = operation.getContext();
+                const attempts = ctx.__refreshAttempts || 0;
 
-                // Try refresh up to 2 times
+                // Try at most 2 times per operation (guard against infinite loops)
                 if (attempts < 2) {
-                  refreshAttempts.set(operationId, attempts + 1);
+                  operation.setContext({ __refreshAttempts: attempts + 1 });
                   console.log(
                     `Attempting token refresh (attempt ${attempts + 1}/2)`
                   );
 
-                  // Attempt to refresh token and retry
-                  refreshAccessToken()
+                  // Attempt to refresh token (shared across concurrent requests) and retry
+                  const doRetryWithNewToken = (newToken) => {
+                    console.log("Token refreshed, retrying operation");
+
+                    // Update headers with new token
+                    operation.setContext(({ headers = {} }) => ({
+                      headers: {
+                        ...headers,
+                        authorization: `Bearer ${newToken}`,
+                      },
+                    }));
+
+                    // Retry the operation
+                    const retrySubscription = forward(operation).subscribe({
+                      next: observer.next.bind(observer),
+                      error: observer.error.bind(observer),
+                      complete: observer.complete.bind(observer),
+                    });
+
+                    // Handle unsubscribe
+                    return () => {
+                      if (retrySubscription) retrySubscription.unsubscribe();
+                    };
+                  };
+
+                  getSharedRefreshToken()
                     .then((newToken) => {
-                      console.log("Token refreshed, retrying operation");
-                      refreshAttempts.delete(operationId);
-
-                      // Update headers with new token
-                      operation.setContext(({ headers = {} }) => ({
-                        headers: {
-                          ...headers,
-                          authorization: `Bearer ${newToken}`,
-                        },
-                      }));
-
-                      // Retry the operation
-                      const retrySubscription = forward(operation).subscribe({
-                        next: observer.next.bind(observer),
-                        error: observer.error.bind(observer),
-                        complete: observer.complete.bind(observer),
-                      });
-
-                      // Handle unsubscribe
-                      return () => {
-                        if (retrySubscription) retrySubscription.unsubscribe();
-                      };
+                      doRetryWithNewToken(newToken);
                     })
                     .catch((error) => {
-                      console.error("Token refresh failed:", error);
-                      refreshAttempts.delete(operationId);
-                      observer.error(error);
+                      console.error(
+                        "Token refresh failed after retries:",
+                        error
+                      );
+                      localStorage.removeItem("accessToken");
+                      window.location.href = "/login";
                     });
 
                   return;
                 } else {
                   // Max attempts reached
-                  refreshAttempts.delete(operationId);
                   console.error("Max token refresh attempts reached");
                   localStorage.removeItem("accessToken");
                   window.location.href = "/login";
@@ -162,6 +184,7 @@ const authRefreshLink = new ApolloLink((operation, forward) => {
             observer.complete();
           },
           error: (error) => {
+            // Pass through other errors
             observer.error(error);
           },
           complete: () => {
@@ -206,9 +229,14 @@ const client = new ApolloClient({
   defaultOptions: {
     watchQuery: {
       fetchPolicy: "cache-and-network",
+      errorPolicy: "all",
     },
     query: {
       fetchPolicy: "cache-first",
+      errorPolicy: "all",
+    },
+    mutate: {
+      errorPolicy: "all",
     },
   },
 });
