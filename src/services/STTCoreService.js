@@ -490,6 +490,11 @@ function decodeAndResampleAudio(arrayBuffer) {
     STATE.audioContext.decodeAudioData(
       arrayBuffer,
       (audioBuffer) => {
+        const audioDuration = audioBuffer.duration;
+        console.log(
+          `Original audio file's duration: ${audioDuration.toFixed(2)}s`
+        );
+
         const monoData = audioBuffer.getChannelData(0);
         const targetSampleRate = STATE.config.SAMPLE_RATE || 16000;
         const resampledData = shouldResample(
@@ -554,10 +559,17 @@ export async function inferSTT(audioBlob, options = {}) {
     const audioData = await prepareAudioData(audioBlob, options);
     if (!audioData) return null;
 
+    const starttime = performance.now();
+
     const features = extractFeatures(audioData);
     if (!features) return null;
 
     const transcript = await runInferenceAndDecode(features);
+
+    const transcript_time = performance.now() - starttime;
+
+    console.log("Realtime infer for audio: ", transcript_time.toFixed(2), "ms");
+
     return transcript;
   } catch (error) {
     console.error("❌ Inference error:", error);
@@ -570,6 +582,7 @@ export async function inferSTT(audioBlob, options = {}) {
  */
 async function prepareAudioData(audioBlob, options = {}) {
   const arrayBuffer = await audioBlob.arrayBuffer();
+
   const audioData = await decodeAndResampleAudio(arrayBuffer);
 
   if (!audioData || audioData.length === 0) {
@@ -1106,6 +1119,7 @@ export async function processAudioFile(
     if (onProgress) onProgress(30);
 
     // Decode audio
+    const startDecodeTime = performance.now();
     const audioData = await decodeAndResampleAudio(arrayBuffer);
     if (!audioData || audioData.length === 0) {
       throw new Error("Failed to decode audio file");
@@ -1118,6 +1132,13 @@ export async function processAudioFile(
     // Transcribe
     const transcript = await transcribeAudioFile(audioData);
     if (onProgress) onProgress(100);
+
+    const decodeTime = performance.now() - startDecodeTime;
+    console.log(
+      "Finish transcript for file, time transcritp: ",
+      decodeTime.toFixed(2),
+      "ms"
+    );
 
     // UI UPDATE PLACEHOLDER
     if (transcript && transcript.trim()) {
