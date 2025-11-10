@@ -80,9 +80,16 @@ async function loadConfiguration() {
  * Note: onnxruntime-web uses WebAssembly (.wasm files) internally to run your .onnx model
  */
 async function loadONNXModel() {
-  // Load your ONNX model file
-  STATE.sttSession = await ort.InferenceSession.create(CONFIG.MODEL_PATH);
-  console.info("✅ ONNX Model loaded");
+  // Manually fetch the model with default cache
+  const response = await fetch(CONFIG.MODEL_PATH, { cache: "default" });
+  if (!response.ok) {
+    throw new Error(`Failed to load ONNX model: ${response.statusText}`);
+  }
+  const modelArrayBuffer = await response.arrayBuffer();
+
+  // Create session from ArrayBuffer
+  STATE.sttSession = await ort.InferenceSession.create(modelArrayBuffer);
+  console.info("✅ ONNX Model loaded from cache-friendly fetch");
 }
 
 /**
