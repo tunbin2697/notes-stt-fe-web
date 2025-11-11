@@ -7,10 +7,22 @@ import {
   concat,
 } from "@apollo/client";
 
+// Resolve GraphQL endpoint at runtime:
+// - If VITE_GRAPHQL_ENDPOINT is provided at build time, use it.
+// - If running in a local desktop WebView served from localhost/127.0.0.1, use a same-origin proxy path
+//   (we serve /api/* from the embedded Kestrel so using a relative /api/graphql avoids CORS/GSI issues).
+// - Otherwise, fall back to production URL.
+const _buildEnvEndpoint = import.meta.env.VITE_GRAPHQL_ENDPOINT;
+const _isLocalHost =
+  typeof window !== "undefined" &&
+  (window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "localhost");
+const GRAPHQL_ENDPOINT =
+  _buildEnvEndpoint ||
+  (_isLocalHost ? "/graphql" : "https://notes-stt.baokhangdev.click/graphql");
+
 const httpLink = new HttpLink({
-  uri:
-    import.meta.env.VITE_GRAPHQL_ENDPOINT ||
-    "https://notes-stt.baokhangdev.click/graphql",
+  uri: GRAPHQL_ENDPOINT,
   credentials: "include", // Important for cookies (refresh token)
 });
 
@@ -47,21 +59,17 @@ export const refreshAccessToken = async () => {
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(
-      import.meta.env.VITE_GRAPHQL_ENDPOINT ||
-        "https://notes-stt.baokhangdev.click/graphql",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include", // Send refresh token cookie
-        body: JSON.stringify({
-          query: `mutation { refresh { accessToken } }`,
-        }),
-        signal: controller.signal,
-      }
-    );
+    const response = await fetch(GRAPHQL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include", // Send refresh token cookie
+      body: JSON.stringify({
+        query: `mutation { refresh { accessToken } }`,
+      }),
+      signal: controller.signal,
+    });
 
     clearTimeout(timeout);
 
