@@ -7,19 +7,15 @@ import {
   concat,
 } from "@apollo/client";
 
-// Resolve GraphQL endpoint at runtime:
-// - If VITE_GRAPHQL_ENDPOINT is provided at build time, use it.
-// - If running in a local desktop WebView served from localhost/127.0.0.1, use a same-origin proxy path
-//   (we serve /api/* from the embedded Kestrel so using a relative /api/graphql avoids CORS/GSI issues).
-// - Otherwise, fall back to production URL.
 const _buildEnvEndpoint = import.meta.env.VITE_GRAPHQL_ENDPOINT;
-const _isLocalHost =
+
+const _isWebView =
   typeof window !== "undefined" &&
+  /WebView2|Edg\//.test(window.navigator.userAgent) &&
   (window.location.hostname === "127.0.0.1" ||
     window.location.hostname === "localhost");
-const GRAPHQL_ENDPOINT =
-  _buildEnvEndpoint ||
-  (_isLocalHost ? "/graphql" : "https://notes-stt.baokhangdev.click/graphql");
+
+const GRAPHQL_ENDPOINT = _isWebView ? "/graphql" : _buildEnvEndpoint;
 
 const httpLink = new HttpLink({
   uri: GRAPHQL_ENDPOINT,
